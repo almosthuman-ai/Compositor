@@ -46,20 +46,32 @@ class Layer:
 class Document:
     def __init__(self,width=1536,height=1024,title='Untitled'):
         self.width,self.height=dimensions(width,height); self.title=title; self.id=uid()
-        self.layers=[]; self.active=None; self.selection=None; self.revision=0; self.saved_revision=-1
+        self.layers=[]; self.active=None; self.selection=None; self.revision=0
+        self.state_id=uid(); self.saved_state_id=None; self.saved_revision=-1
         self.path=None; self.history=[]; self.future=[]; self.guides=[]; self.studio={}; self._cache=None
 
     def snapshot(self):
-        return (self.width,self.height,self.title,[l.clone() for l in self.layers],self.active,self.selection,copy.deepcopy(self.guides),copy.deepcopy(self.studio))
+        return (self.width,self.height,self.title,[l.clone() for l in self.layers],self.active,self.selection,copy.deepcopy(self.guides),copy.deepcopy(self.studio),self.state_id)
 
     def restore(self,s):
-        self.width,self.height,self.title,self.layers,self.active,self.selection,self.guides,self.studio=s
+        self.width,self.height,self.title,self.layers,self.active,self.selection,self.guides,self.studio,self.state_id=s
         self._cache=None
+
+    @property
+    def saved_revision(self): return self._saved_revision
+
+    @saved_revision.setter
+    def saved_revision(self,value):
+        self._saved_revision=value
+        self.saved_state_id=self.state_id if value==self.revision else None
+
+    @property
+    def dirty(self): return self.state_id!=self.saved_state_id
 
     def info(self):
         box=self.selection.getbbox() if self.selection is not None else None
         return {'id':self.id,'title':self.title,'width':self.width,'height':self.height,'path':self.path,'revision':self.revision,
-                'dirty':self.revision != self.saved_revision,'activeLayer':self.active,'layers':[l.info() for l in self.layers],
+                'dirty':self.dirty,'activeLayer':self.active,'layers':[l.info() for l in self.layers],
                 'selection':list(box) if box else None,'guides':self.guides,'studio':self.studio,
                 'undo':[h[0] for h in self.history],'redo':[h[0] for h in self.future]}
 
@@ -88,7 +100,7 @@ class Document:
             self.render()
         except Exception:
             self.restore(before); raise
-        self.history.append((op,before)); self.history=self.history[-60:]; self.future=[]; self.revision+=1
+        self.history.append((op,before)); self.history=self.history[-60:]; self.future=[]; self.state_id=uid(); self.revision+=1
         return self.info()
 
     def _validate(self):

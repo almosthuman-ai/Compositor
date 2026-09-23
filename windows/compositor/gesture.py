@@ -10,7 +10,7 @@ class EditPreview:
         self.source=document.snapshot()
 
     def render(self,points):
-        width,height,_,layers,_,selection,_,_=self.source
+        width,height,_,layers,_,selection,*_=self.source
         args={**self.arguments,'points':points}
         # Pointwise compositing can render just the stroke footprint. Filters and
         # effects may read neighboring/global pixels, so use the full reference

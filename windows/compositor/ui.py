@@ -533,7 +533,7 @@ class Editor(QMainWindow):
             self.tabs.blockSignals(True)
             while self.tabs.count(): self.tabs.removeTab(0)
             for d in self.ws.documents.values():
-                i=self.tabs.addTab(d.title+(' •' if d.revision!=d.saved_revision else '')); self.tabs.setTabData(i,d.id)
+                i=self.tabs.addTab(d.title+(' •' if d.dirty else '')); self.tabs.setTabData(i,d.id)
                 close=icon_button('close','Close '+d.title,lambda checked=False,doc_id=d.id:self.close_document_tab(doc_id)); self.tabs.setTabButton(i,QTabBar.ButtonPosition.RightSide,close)
                 if d.id==self.ws.active: self.tabs.setCurrentIndex(i)
             self.tabs.blockSignals(False); self.layers.clear()
@@ -585,7 +585,7 @@ class Editor(QMainWindow):
             if self.tabs.tabData(i)==doc_id: self.close_tab(i); return
     def close_tab(self,index):
         d=self.ws.document(self.tabs.tabData(index))
-        if d.revision!=d.saved_revision and not self.ws.projects.for_document(d.id):
+        if d.dirty and not self.ws.projects.for_document(d.id):
             answer=QMessageBox.question(self,'Close document','Save changes to '+d.title+'?',QMessageBox.StandardButton.Save|QMessageBox.StandardButton.Discard|QMessageBox.StandardButton.Cancel)
             if answer==QMessageBox.StandardButton.Cancel: return
             if answer==QMessageBox.StandardButton.Save:

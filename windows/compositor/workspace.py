@@ -123,7 +123,7 @@ class Workspace(QObject):
             result=d.save(a.get('path') or d.path); self.notify(); return result
         if action=='export': return d.export(a['path'],a.get('quality',95))
         if action=='close':
-            if d.revision!=d.saved_revision and not a.get('discard'): raise ValueError('Save this document first, or explicitly discard its unsaved changes')
+            if d.dirty and not a.get('discard'): raise ValueError('Save this document first, or explicitly discard its unsaved changes')
             if self.projects.for_document(d.id): self.projects.flush()
             del self.documents[d.id]; self.active=next(iter(self.documents),None); self.notify(); return self.state()
         if action=='capture':
@@ -212,7 +212,7 @@ class Workspace(QObject):
                 file=folder/(d.id+'.compwin')
                 if self.recovered_revisions.get(d.id)!=d.revision or not file.exists():
                     d.save(file,mark_saved=False); self.recovered_revisions[d.id]=d.revision
-                records.append({'id':d.id,'file':str(file),'path':d.path,'dirty':d.revision!=d.saved_revision})
+                records.append({'id':d.id,'file':str(file),'path':d.path,'dirty':d.dirty})
             atomic_json(folder/'session.json',{'documents':records,'active':self.active,'activeProject':self.projects.active})
         except Exception as e: self.message.emit('Recovery save failed: '+str(e))
 
