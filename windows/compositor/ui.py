@@ -439,6 +439,8 @@ class Editor(QMainWindow):
         self.color_panel=ColorPanel(self); section('Color',self.color_panel).setMinimumHeight(150); self.color_panel.sync()
         properties=QWidget(); prop=QVBoxLayout(properties); prop.setContentsMargins(12,8,12,8); prop.setSpacing(6)
         self.layer_caption=QLabel('No layer selected'); self.layer_caption.setWordWrap(True); prop.addWidget(self.layer_caption)
+        from .text_ui import TextProperties
+        self.text_properties=TextProperties(self); prop.addWidget(self.text_properties)
         label=QLabel('Transform'); label.setObjectName('sectionLabel'); prop.addWidget(label)
         fields=QGridLayout(); fields.setHorizontalSpacing(8); fields.setVerticalSpacing(4); self.transform_fields={}
         for key,label,r,c in [('sx','W',0,0),('sy','H',0,2),('x','X',1,0),('y','Y',1,2),('angle','Angle',2,0)]:
@@ -446,7 +448,9 @@ class Editor(QMainWindow):
             fields.addWidget(QLabel(label),r,c); fields.addWidget(spin,r,c+1)
         flips=QHBoxLayout(); flips.setSpacing(0); flips.addWidget(icon_button('flip_h','Flip horizontally',lambda:self.flip('sx'))); flips.addWidget(icon_button('flip_v','Flip vertically',lambda:self.flip('sy'))); fields.addLayout(flips,2,2,1,2); prop.addLayout(fields)
         self.parent_group=QComboBox(); self.parent_group.setAccessibleName('Parent group'); self.parent_group.currentIndexChanged.connect(self.change_group); prop.addWidget(self.parent_group)
-        edit_content=QPushButton('Edit content…'); edit_content.clicked.connect(self.edit_layer_content); prop.addWidget(edit_content); prop.addStretch(); section('Properties',properties).setMinimumHeight(280)
+        edit_content=QPushButton('Edit content…'); edit_content.clicked.connect(self.edit_layer_content); prop.addWidget(edit_content); prop.addStretch()
+        properties_scroll=QScrollArea(); properties_scroll.setWidgetResizable(True); properties_scroll.setFrameShape(QScrollArea.Shape.NoFrame); properties_scroll.setWidget(properties)
+        section('Properties',properties_scroll).setMinimumHeight(260)
         panel=QWidget(); layout=QVBoxLayout(panel); layout.setContentsMargins(0,6,0,0); layout.setSpacing(4)
         row=QHBoxLayout(); row.setContentsMargins(8,0,8,0); self.blend=QComboBox(); self.blend.addItems(pixels.BLENDS); self.blend.setAccessibleName('Layer blend mode'); self.blend.currentTextChanged.connect(lambda v:self.property_changed('blend',v)); row.addWidget(self.blend,1)
         row.addWidget(QLabel('Opacity')); self.opacity=QSpinBox(); self.opacity.setRange(0,100); self.opacity.setSuffix('%'); self.opacity.setFixedWidth(67); self.opacity.setAccessibleName('Layer opacity'); self.opacity.valueChanged.connect(lambda v:self.property_changed('opacity',v/100)); row.addWidget(self.opacity); layout.addLayout(row)
@@ -456,7 +460,7 @@ class Editor(QMainWindow):
         buttons=QHBoxLayout(); buttons.setContentsMargins(4,2,4,2); buttons.setSpacing(1); buttons.addStretch()
         for name,label,fn in [('effects','Layer effects',self.effects_dialog),('mask','Add layer mask',lambda:self.edit('mask',{'mode':'white'})),('group','New group',lambda:self.edit('add_layer',{'kind':'group','name':'Group'})),('plus','New layer',lambda:self.edit('add_layer')),('copy','Duplicate layer',lambda:self.edit('duplicate_layer')),('up','Raise layer',lambda:self.reorder(1)),('down','Lower layer',lambda:self.reorder(-1)),('delete','Delete layer',lambda:self.edit('delete_layer'))]: buttons.addWidget(icon_button(name,label,fn))
         layout.addLayout(buttons); section('Layers',panel).setMinimumHeight(200)
-        stack.setSizes([210,280,370]); self.inspector_stack=stack
+        stack.setSizes([170,370,320]); self.inspector_stack=stack
         self.layer_dock=QDockWidget('Inspector',self); self.layer_dock.setWidget(inspector); self.layer_dock.setMinimumWidth(300); self.layer_dock.setMaximumWidth(340); self.layer_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures); self.layer_dock.setTitleBarWidget(QWidget()); self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.layer_dock)
 
     def build_generation(self):
@@ -554,6 +558,7 @@ class Editor(QMainWindow):
                     for group in d.layers:
                         if group.kind=='group' and group.id!=l.id: self.parent_group.addItem(group.name,group.id)
                     self.parent_group.setCurrentIndex(max(0,self.parent_group.findData(l.parent)))
+            self.text_properties.refresh()
             selected=self.jobs.currentItem().data(Qt.ItemDataRole.UserRole) if self.jobs.currentItem() else None; self.jobs.clear()
             for job in sorted(self.ws.generation.jobs.values(),key=lambda j:j['created'],reverse=True):
                 if job.get('documentId')!=self.ws.active: continue

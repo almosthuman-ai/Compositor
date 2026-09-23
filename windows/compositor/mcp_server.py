@@ -31,7 +31,7 @@ def compositor_new_document(width:int=1536,height:int=1024,title:str='Untitled',
 
 @server.tool()
 def compositor_open_document(path:str,asCopy:bool=False) -> dict:
-    """Open a .compwin, .compbook, OpenRaster, PSD, upstream Compositor package or ordinary image. An unchanged .compbook returns to its existing project; asCopy explicitly imports an independent project. Returns conversion notes when present."""
+    """Open a .compwin, .compbook, OpenRaster, PSD, upstream Compositor package or ordinary image. An already-open document file or unchanged .compbook returns to its existing owner. asCopy explicitly opens an independent unsaved copy. Different files remain independent even when their embedded document IDs match. Returns conversion notes when present."""
     return call('open',locals())
 
 @server.tool()

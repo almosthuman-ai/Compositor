@@ -4,13 +4,13 @@ A layered image editor for Windows 10, with generative editing and tools an AI c
 
 This edition is in active development. It preserves Robbie Tilton's original Mac application in the repository and provides a separate Windows implementation. See [current capabilities and remaining work](../module-manifest.md) before relying on a feature for production.
 
-![Windows editor with an icon tool rail, pixel rulers and stacked Color, Properties and Layers panels](docs/editor.png)
+![Editable poster with font controls in Properties and separate artwork and text layers](docs/editor.png)
 
 The tool rail keeps familiar shortcuts: V to move, M to select, B to paint and H to pan. Hover over an icon for its name and shortcut. Space-drag pans the canvas; the mouse wheel zooms. Ctrl+0 fits the artwork and Ctrl+1 shows actual pixels.
 
 Color, Properties and Layers stay beside the canvas. Width and height in Properties are pixel dimensions; resizing a layer preserves its source pixels. Open Generate, ChatGPT or Projects from the options bar when needed, and close their panels to reclaim canvas space.
 
-The Type tool offers searchable installed font families and styles, alignment, line spacing, color and a preview of the rendered text. Double-click a text layer to edit it. Font availability follows the fonts installed on your computer.
+Select a text layer to change its font family, style and size directly in Properties. Double-click it to edit the wording, alignment, line spacing and color, with a preview of the rendered text. Font availability follows the fonts installed on your computer.
 
 ## Run from source
 

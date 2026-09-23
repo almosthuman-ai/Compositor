@@ -1,6 +1,6 @@
 """The single owner of open documents for the native UI and external operators."""
 from pathlib import Path
-import base64, io, json, time
+import base64, io, json, os, time, uuid
 from PySide6.QtCore import QObject, Signal, QTimer
 from PIL import Image
 from .document import Document
@@ -81,8 +81,16 @@ class Workspace(QObject):
             if Path(a['path']).suffix.lower()=='.compbook':
                 result=self.projects.open_bundle(a['path'],a.get('asCopy',False)); self.notify(); return result
             d=Document.load(a['path'])
-            if d.id in self.documents: self.active=d.id
-            else: self.documents[d.id]=d; self.active=d.id
+            same_file=next((existing for existing in self.documents.values() if existing.path and os.path.normcase(str(Path(existing.path).resolve()))==os.path.normcase(str(Path(a['path']).resolve()))),None)
+            if same_file and not a.get('asCopy'):
+                d=same_file
+            else:
+                # Save-as variants may carry the same embedded identity. Their
+                # files are independent work and must not select a different tab.
+                if d.id in self.documents or a.get('asCopy'): d.id=str(uuid.uuid4())
+                if a.get('asCopy'): d.path=None; d.saved_revision=-1
+                self.documents[d.id]=d
+            self.active=d.id
             self.notify(); return {**d.info(),'conversionReport':getattr(d,'conversion_report',[])}
         if action=='activate':
             self.active=self.document(a['documentId']).id
@@ -137,7 +145,6 @@ class Workspace(QObject):
             bg=Image.new('RGBA',im.size,'white'); im=Image.alpha_composite(bg,im).convert('RGB'); data=io.BytesIO(); im.save(data,'JPEG',quality=90,subsampling=0)
             return {'documentId':d.id,'revision':d.revision,'width':im.width,'height':im.height,'mimeType':'image/jpeg','data':base64.b64encode(data.getvalue()).decode()}
         if action=='prepare_generation':
-            import uuid
             folder=self.settings.root/'prepared'/str(uuid.uuid4()); folder.mkdir(parents=True)
             im=d.render(); box=a.get('box'); kind=a.get('kind','edit')
             if kind=='patch':

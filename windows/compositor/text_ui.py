@@ -1,11 +1,110 @@
 """Typography editing with installed faces and the document's actual text renderer."""
-from PySide6.QtCore import Qt,QTimer
+from PySide6.QtCore import Qt,QTimer,QEvent
 from PySide6.QtGui import QColor,QPainter,QPixmap,QImage
 from PySide6.QtWidgets import (QDialog,QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QLabel,QPlainTextEdit,QSpinBox,
     QPushButton,QDialogButtonBox,QColorDialog)
 from .chrome import EditorComboBox as QComboBox
 from . import fonts,pixels
 from .document import Layer
+
+
+class TextProperties(QWidget):
+    """Immediate type controls; unfinished input stays with its original layer."""
+    def __init__(self,editor):
+        super().__init__(); self.editor=editor; self.ws=editor.ws; self.target=None; self.syncing=False; self.dirty=set(); self.baselines={}; self.displayed={}
+        layout=QVBoxLayout(self); layout.setContentsMargins(0,0,0,0); layout.setSpacing(6)
+        self.heading=QLabel('Character'); layout.addWidget(self.heading)
+        self.family=QComboBox(); self.family.setEditable(True); self.family.addItems(fonts.families()); self.family.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.family.setAccessibleName('Font family'); self.family.setToolTip('Font family'); self.family.completer().setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive); layout.addWidget(self.family)
+        row=QHBoxLayout(); row.setSpacing(8)
+        self.face=QComboBox(); self.face.setAccessibleName('Font style'); self.face.setToolTip('Font style'); row.addWidget(self.face,1)
+        self.size=QSpinBox(); self.size.setRange(1,2048); self.size.setSuffix(' px'); self.size.setKeyboardTracking(False); self.size.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons); self.size.setFixedWidth(84)
+        self.size.setAccessibleName('Font size'); self.size.setToolTip('Font size'); row.addWidget(self.size); layout.addLayout(row)
+        self.message=QLabel(); self.message.setWordWrap(True); self.message.hide(); layout.addWidget(self.message)
+        self.family.lineEdit().textEdited.connect(lambda:self.begin('family'))
+        self.family.lineEdit().editingFinished.connect(lambda:self.apply('family'))
+        self.family.activated.connect(lambda:self.choose('family'))
+        self.face.activated.connect(lambda:self.choose('face'))
+        self.size.lineEdit().textEdited.connect(lambda:self.begin('size'))
+        self.size.valueChanged.connect(lambda:self.begin('size'))
+        self.size.editingFinished.connect(lambda:self.apply('size'))
+        for widget in (self.family,self.family.lineEdit(),self.face,self.size,self.size.lineEdit()): widget.installEventFilter(self)
+
+    def eventFilter(self,watched,event):
+        if event.type()==QEvent.Type.KeyPress and event.key()==Qt.Key.Key_Escape and self.dirty:
+            self.dirty.clear(); self.baselines.clear(); self.message.hide(); self.refresh(); return True
+        return super().eventFilter(watched,event)
+
+    def field_value(self,params,field):
+        if field=='size': return params.get('size',48)
+        return tuple(params.get(key) for key in ('fontFamily','fontStyle','font','fontIndex'))
+
+    def begin(self,field):
+        if self.syncing or not self.target: return
+        if field not in self.dirty: self.baselines[field]=self.field_value(self.displayed,field)
+        self.dirty.add(field)
+
+    def choose(self,field):
+        self.begin(field); self.apply(field)
+
+    def feedback(self,text):
+        self.message.setText(text); self.message.show()
+
+    def refresh(self):
+        selected=None
+        if self.ws.active:
+            document=self.ws.document()
+            if document.active and document.layer().kind=='text': selected=(document.id,document.active)
+        if not self.dirty: self.target=selected
+        self.setVisible(self.target is not None)
+        if not self.target: return
+        try: layer=self.ws.document(self.target[0]).layer(self.target[1])
+        except ValueError:
+            self.feedback('This text layer is no longer open. Esc discards the unfinished change.'); return
+        if layer.kind!='text':
+            self.feedback('This layer no longer contains editable text. Esc discards the unfinished change.'); return
+        self.syncing=True
+        try:
+            params=layer.params; face=fonts.identify(params)
+            self.heading.setText('Character' if self.target==selected else 'Character · '+layer.name)
+            if 'family' not in self.dirty:
+                name=params.get('fontFamily') or (face['family'] if face else 'Arial')
+                if self.family.currentText()!=name: self.family.setCurrentText(name)
+                if 'face' not in self.dirty:
+                    choices=fonts.styles(name); current=params.get('fontStyle') or (face['style'] if face else 'Regular')
+                    if [self.face.itemText(i) for i in range(self.face.count())]!=choices: self.face.clear(); self.face.addItems(choices)
+                    if self.face.currentText()!=current: self.face.setCurrentText(current)
+            if 'size' not in self.dirty and self.size.value()!=round(params.get('size',48)): self.size.setValue(round(params.get('size',48)))
+            self.displayed=dict(params)
+            for field in (self.family,self.face,self.size): field.setEnabled(not layer.locked)
+            if not self.dirty: self.message.hide()
+            elif self.target!=selected: self.feedback('Finish editing '+layer.name+'. Enter applies; Esc cancels.')
+        finally: self.syncing=False
+
+    def apply(self,field):
+        if self.syncing or field not in self.dirty or not self.target: return
+        try:
+            document=self.ws.document(self.target[0]); layer=document.layer(self.target[1]); params=dict(layer.params)
+            if layer.kind!='text': raise ValueError('This layer no longer contains editable text. Esc discards the unfinished change.')
+            if layer.locked: raise ValueError('Unlock this text layer to change its type.')
+            current=self.field_value(params,field)
+            if current!=self.baselines[field]:
+                self.baselines[field]=current
+                raise ValueError('This setting changed elsewhere. Press Enter again to apply your choice, or Esc to cancel.')
+            if field=='size': params['size']=self.size.value()
+            else:
+                family=self.family.currentText().strip() if field=='family' else params.get('fontFamily',self.family.currentText())
+                style=params.get('fontStyle','Regular') if field=='family' else self.face.currentText()
+                face=fonts.resolve(family,style)
+                if face is None: raise ValueError('Choose an installed font from the list.')
+                params.update(fontFamily=face['family'],fontStyle=face['style'],font=face['path'],fontIndex=face['index'])
+            self.dirty.remove(field)
+            try:
+                if params!=layer.params: self.ws.dispatch('edit',{'documentId':document.id,'expectedRevision':document.revision,'operation':'update_layer','args':{'layerId':layer.id,'params':params}})
+            except Exception:
+                self.dirty.add(field); raise
+            self.refresh()
+        except Exception as error: self.feedback(str(error))
 
 
 class TextPreview(QWidget):
