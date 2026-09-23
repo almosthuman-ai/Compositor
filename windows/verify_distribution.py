@@ -70,8 +70,17 @@ def main():
             tool('compositor_edit',{'operation':'undo','args':{},'documentId':document['id']})
             tool('compositor_export',{'path':str(root/'undone.png'),'documentId':document['id']})
             with Image.open(root/'undone.png') as pixels: assert pixels.getpixel((32,32))==(255,255,255,255)
+            project=tool('compositor_production',{'operation':'new','args':{'title':'Portable project proof','kind':'book','width':64,'height':64,'pageCount':2}})
+            tool('compositor_production',{'operation':'update_page','args':{'projectId':project['id'],'title':'Named page','text':'Portable authored prose'}})
+            state=tool('compositor_get_workspace',{})
+            assert next(d for d in state['documents'] if d['id']==state['activeDocument'])['title']=='Named page'
+            tool('compositor_production',{'operation':'save','args':{'projectId':project['id'],'path':str(root/'project.compbook')}})
+            reopened=tool('compositor_production',{'operation':'open','args':{'path':str(root/'project.compbook')}})
+            assert reopened['id']!=project['id'] and reopened['pages'][0]['text']=='Portable authored prose'
+            tool('compositor_production',{'operation':'export','args':{'projectId':project['id'],'path':str(root/'reading.html')}})
+            assert 'Portable authored prose' in (root/'reading.html').read_text(encoding='utf-8')
             print(json.dumps({'passed':True,'tools':len(catalog['tools']),'gui':str(distribution/'Compositor.exe'),
-                'verified':['MCP mutation','stale revision rejection','actual canvas image','layered save','exact export pixels','undo']}))
+                'verified':['MCP mutation','stale revision rejection','actual canvas image','layered save','exact export pixels','undo','portable production project','reading export']}))
         finally:
             if operator is not None:
                 operator.stdin.close()

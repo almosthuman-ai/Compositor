@@ -95,6 +95,7 @@ class Canvas(QGraphicsView):
         if event.button()!=Qt.MouseButton.LeftButton: return
         point=self.mapToScene(event.position().toPoint()); self.start=point; self.end=point; self.points=[[point.x(),point.y(),self.pressure]]
         self.source_revision=self.ws.document().revision
+        self.source_document_id=self.ws.active
         self.move_mode='translate'
         tool=self.window.tool
         if tool=='eyedropper':
@@ -150,6 +151,8 @@ class Canvas(QGraphicsView):
         if self.pan: self.pan=False; self.unsetCursor(); return
         if self.start is None: return
         start=self.start; end=self.mapToScene(event.position().toPoint()); self.start=None; tool=self.window.tool
+        if self.ws.active!=self.source_document_id:
+            self.window.statusBar().showMessage('The active document changed during this gesture. Try again on the intended page.'); self.selection_overlay(); return
         rect=QRectF(start,end).normalized(); box={'x':int(rect.x()),'y':int(rect.y()),'width':max(1,int(rect.width())),'height':max(1,int(rect.height()))}
         if tool in ('brush','erase','clone','heal','blur_brush'):
             points=self.points
@@ -197,7 +200,7 @@ class Editor(QMainWindow):
         self.zoom_label=QLabel('100%'); self.coords_label=QLabel(''); self.statusBar().addPermanentWidget(self.coords_label); self.statusBar().addPermanentWidget(self.zoom_label)
         self.canvas=Canvas(self); self.tabs=QTabBar(); self.tabs.setExpanding(False); self.tabs.setTabsClosable(True); self.tabs.currentChanged.connect(self.activate_tab); self.tabs.tabCloseRequested.connect(self.close_tab)
         central=QWidget(); layout=QVBoxLayout(central); layout.setContentsMargins(0,0,0,0); layout.setSpacing(0); layout.addWidget(self.tabs); layout.addWidget(self.canvas); self.setCentralWidget(central)
-        self.build_menus(); self.build_tools(); self.build_layers(); self.build_generation(); self.build_chat()
+        self.build_menus(); self.build_tools(); self.build_layers(); self.build_generation(); self.build_chat(); self.build_production()
         ws.changed.connect(self.refresh); ws.message.connect(lambda text:self.statusBar().showMessage(text,15000)); self.refresh()
 
     def action(self,menu,title,callback,shortcut=None):
@@ -223,7 +226,7 @@ class Editor(QMainWindow):
         filters=self.menuBar().addMenu('F&ilters')
         for label,kind in [('Gaussian blur','gaussian_blur'),('Motion blur','motion_blur'),('Sharpen','sharpen'),('Noise','noise')]: self.action(filters,label+'…',lambda kind=kind:self.adjust_dialog(kind,False))
         view=self.menuBar().addMenu('&View'); self.action(view,'Fit canvas',self.canvas.fit,'Ctrl+0'); self.action(view,'Actual pixels',lambda:self.canvas.resetTransform(),'Ctrl+1'); self.action(view,'Add guide…',self.guide_dialog)
-        projects=self.menuBar().addMenu('&Projects'); self.action(projects,'Open production studio',self.open_studio); self.action(projects,'Bring project image into editor…',self.pull_project); self.action(projects,'Return artwork to project',self.push_project)
+        projects=self.menuBar().addMenu('&Projects'); self.action(projects,'Project library',lambda:self.production_dock.raise_()); self.action(projects,'New artwork, comic or book…',lambda:self.production.create()); self.action(projects,'Open project…',lambda:self.production.open()); projects.addSeparator(); self.action(projects,'Open connected studio',self.open_studio); self.action(projects,'Bring connected project image into editor…',self.pull_project); self.action(projects,'Return artwork to connected project',self.push_project)
         help_menu=self.menuBar().addMenu('&Help'); self.action(help_menu,'About Compositor',lambda:QMessageBox.information(self,'Compositor','Compositor for Windows\nBased on Robbie Tilton’s MIT-licensed Compositor.\nWindows edition by the Compositor contributors.\n\nSpace-drag to pan; wheel to zoom.\nAlt-click sets a clone source.\nShift adds to selections; Alt subtracts.\n\nSave .compwin for editable layers.'))
 
     def build_tools(self):
@@ -291,6 +294,10 @@ class Editor(QMainWindow):
         row=QHBoxLayout(); send=QPushButton('Send'); send.clicked.connect(self.chat_send); row.addWidget(send); stop=QPushButton('Stop'); stop.clicked.connect(self.chat_stop); row.addWidget(stop); layout.addLayout(row)
         self.chat_dock=self.dock('ChatGPT',panel); self.tabifyDockWidget(self.generation_dock,self.chat_dock); self.layer_dock.raise_(); self.chat=None
 
+    def build_production(self):
+        from .production_ui import ProductionPanel
+        self.production=ProductionPanel(self); self.production_dock=self.dock('Projects',self.production); self.tabifyDockWidget(self.chat_dock,self.production_dock); self.layer_dock.raise_()
+
     def run(self,action,args=None):
         try:
             result=self.ws.dispatch(action,args)
@@ -350,7 +357,7 @@ class Editor(QMainWindow):
         if not self.refreshing and index>=0: self.run('activate',{'documentId':self.tabs.tabData(index)})
     def close_tab(self,index):
         d=self.ws.document(self.tabs.tabData(index))
-        if d.revision!=d.saved_revision:
+        if d.revision!=d.saved_revision and not self.ws.projects.for_document(d.id):
             answer=QMessageBox.question(self,'Close document','Save changes to '+d.title+'?',QMessageBox.StandardButton.Save|QMessageBox.StandardButton.Discard|QMessageBox.StandardButton.Cancel)
             if answer==QMessageBox.StandardButton.Cancel: return
             if answer==QMessageBox.StandardButton.Save:
@@ -391,7 +398,7 @@ class Editor(QMainWindow):
             if isinstance(value,bool): control=QCheckBox(); control.setChecked(value)
             elif isinstance(value,(int,float)):
                 control=QDoubleSpinBox(); control.setRange(-100000,100000); control.setDecimals(3); control.setValue(value)
-            elif key=='text': control=QPlainTextEdit(str(value)); control.setMinimumSize(320,120)
+            elif key in ('text','story','artDirection'): control=QPlainTextEdit(str(value)); control.setMinimumSize(320,120)
             else: control=QLineEdit(str(value))
             layout.addRow(key.replace('_',' ').title(),control); controls[key]=control
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel); buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject); layout.addRow(buttons)
@@ -402,20 +409,23 @@ class Editor(QMainWindow):
         a=self.form_dialog('New document',{'title':'Untitled','width':1536,'height':1024,'background':'#ffffff'})
         if a: self.run('new',a)
     def open_file(self):
-        path,_=QFileDialog.getOpenFileName(self,'Open image or document','','Images and documents (*.compwin *.ora *.psd *.png *.jpg *.jpeg *.webp *.tif *.tiff *.heic *.bmp);;All files (*)')
+        path,_=QFileDialog.getOpenFileName(self,'Open image or document','','Images and documents (*.compwin *.compbook *.ora *.psd *.png *.jpg *.jpeg *.webp *.tif *.tiff *.heic *.bmp);;All files (*)')
         if path: self.run('open',{'path':path})
     def import_file(self):
         path,_=QFileDialog.getOpenFileName(self,'Add image as layer','','Images (*.png *.jpg *.jpeg *.webp *.tif *.tiff *.heic *.bmp)')
         if path: self.edit('import_image',{'path':path})
     def save(self,as_copy=False):
         if not self.ws.active: return None
+        linked=self.ws.projects.for_document(self.ws.active)
+        if linked:
+            self.ws.projects.active=linked[0]['id']; self.production.refresh(); return self.production.save()
         d=self.ws.document(); path=d.path
         if as_copy or not path: path,_=QFileDialog.getSaveFileName(self,'Save layered document',d.title+'.compwin','Compositor document (*.compwin);;OpenRaster (*.ora)')
-        return self.run('save',{'path':path}) if path else None
+        return self.run('save',{'path':path,'documentId':d.id}) if path else None
     def export(self):
         if not self.ws.active: return
-        path,_=QFileDialog.getSaveFileName(self,'Export image',self.ws.document().title+'.png','PNG (*.png);;JPEG (*.jpg);;WebP (*.webp);;TIFF (*.tif)')
-        if path: self.run('export',{'path':path})
+        d=self.ws.document(); path,_=QFileDialog.getSaveFileName(self,'Export image',d.title+'.png','PNG (*.png);;JPEG (*.jpg);;WebP (*.webp);;TIFF (*.tif)')
+        if path: self.run('export',{'path':path,'documentId':d.id})
     def size_dialog(self,operation):
         d=self.ws.document(); a=self.form_dialog(operation.replace('_',' ').title(),{'width':d.width,'height':d.height})
         if a: self.edit(operation,a)
@@ -570,6 +580,6 @@ class Editor(QMainWindow):
         active=[j for j in self.ws.generation.jobs.values() if j['status'] in ('queued','running')]
         if active:
             QMessageBox.information(self,'Images are still generating','Generation is still running. Minimize Compositor to keep these requests alive, or wait for them to finish.'); event.ignore(); return
-        self.ws.save_recovery()
+        self.production.save_drafts(); self.ws.save_recovery()
         if self.chat: self.chat.shutdown()
         event.accept()

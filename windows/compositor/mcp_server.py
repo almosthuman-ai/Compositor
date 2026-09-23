@@ -93,4 +93,9 @@ def compositor_project_action(action:str,args:dict) -> dict:
     """Operate optional production connector: create_lesson, update_lesson, generate, enhance_page, add_page, set_reference_role, set_view, select_page, select_background, set_history, export_comic, export_scene, export_reading. Connector owns its validation and project truth."""
     return call('connector_action',locals())
 
+@server.tool()
+def compositor_production(operation:Literal['list','new','get','select','update','add_page','update_page','reorder_page','remove_page','add_reference','remove_reference','save','open','export','generate','present','close_presentation'],args:dict) -> dict:
+    """Use standalone artwork, comic and book projects, without a Studio service. new: title, kind artwork/comic/book, pageCount, width, height. Other actions use projectId and optional pageId. update: title/story/artDirection. update_page: title/text/prompt/splitY (optional comic panel split). add_page can attach documentId or create blank. reorder_page takes index. add_reference: path/label/role character/style/composition. remove_reference: referenceId. save/open use a .compbook path; export uses a .html or .pdf path. generate combines project direction/story, page prompt and labeled references, with generationKind generate/edit/patch and optional provider/model/size/box. Results remain reviewable candidates. All pages use the same canonical editor documents and operations."""
+    return call('production',locals())
+
 if __name__=='__main__': server.run()

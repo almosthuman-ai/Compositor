@@ -60,9 +60,17 @@ For development, use the repository's `.venv/Scripts/python.exe` as the command 
 
 The tools expose workspace inspection, document creation and opening, layer and pixel operations, selections, masks, undo/redo, image inspection, generation, candidate application, saving and export. `compositor_prepare_generation` captures source images for a collaborator's own image-generation tools. Edits can carry `expectedRevision` to reject stale assumptions. The local connection uses a per-user authentication token; tools do not return credentials.
 
-## Optional production projects
+## Artwork, comics and books
 
-Owen & Vic Studio can be connected through its local service URL in Settings. Its projects, comics, illustrated books, references, enhancement, reading exports and teaching view stay with that service. Bring a selected image into the editor, edit its layers, and return the composite as a new project image. The public editor and its general generation features run independently of this connector.
+The Projects panel creates standalone artwork, comics and illustrated books with up to 64 pages. Every page is a layered document. Add prose and a prompt to each page, set project-wide story and art direction, and add reference images labeled as character, style or composition. Page generation uses that direction and those references; the result remains a candidate until you apply it.
+
+Projects save locally as you work. **Save** creates a portable `.compbook` containing all pages, editable layers, prose and references. Opening a portable copy creates a separate project, preserving any version already open. Page text drafts survive refreshes, page switches and restarts.
+
+Export a self-contained HTML reading copy or a PDF with artwork and prose. **Present** opens a full-screen view with page navigation and an optional two-panel comic layout. Human navigation and MCP selection use the same page. These features work without a connected Studio service.
+
+## Connect an existing studio
+
+Owen & Vic Studio can be connected through its local service URL in Settings. Existing projects remain owned by that service. Bring a selected image into the editor, edit its layers, and return the composite as a new project image. Its existing enhancement and production operations remain available through the connector.
 
 ## Recovery and local data
 
