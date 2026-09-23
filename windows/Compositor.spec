@@ -9,10 +9,16 @@ datas.append((str(upstream_icons/'app-icon-256.png'), 'compositor/assets'))
 binaries = []
 hiddenimports = ['keyring.backends.Windows', 'mcp.server.mcpserver']
 extra = collect_all('pillow_heif')
-ffmpeg = collect_all('imageio_ffmpeg')
-datas += ffmpeg[0]
-binaries += ffmpeg[1]
-hiddenimports += ffmpeg[2]
+encoder = root/'windows/local/encoder/output'
+import hashlib, json
+manifest = json.loads((encoder/'manifest.json').read_text())
+for name, expected in manifest['inputs'].items():
+    if hashlib.sha256((root/'windows/encoder'/name).read_bytes()).hexdigest() != expected:
+        raise RuntimeError('Encoder build instructions changed. Rebuild and package the encoder first.')
+for name, expected in manifest['files'].items():
+    if hashlib.sha256((encoder/name).read_bytes()).hexdigest() != expected:
+        raise RuntimeError('Encoder distribution does not match its manifest. Rebuild the encoder first.')
+datas.append((str(encoder), 'encoder'))
 datas += extra[0]
 binaries += extra[1]
 hiddenimports += extra[2]

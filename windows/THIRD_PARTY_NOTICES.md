@@ -15,8 +15,9 @@ The Windows application is built on the following projects. Their licenses remai
 | PyInstaller | Standalone packaging | [PyInstaller](https://github.com/pyinstaller/pyinstaller), GPL with bootloader exception |
 | Codex | Optional ChatGPT integration runtime | [OpenAI Codex](https://github.com/openai/codex), Apache-2.0 |
 | Glitch Temple | Glitch treatments, sorting, character fields and animation algorithms | [Tai Mei / Glitch Temple](https://github.com/taimei886/glitch-temple), MIT; original sources and attribution retained in `windows/glitch-engine/vendor` |
-| imageio-ffmpeg | Locating the bundled animation encoder | [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg), BSD-2-Clause |
-| FFmpeg | Separate executable for GIF and MP4 export | [FFmpeg 7.1](https://github.com/FFmpeg/FFmpeg/tree/n7.1), GPL-3.0-or-later for the bundled Gyan essentials build; see `third-party-licenses/ffmpeg` |
+| FFmpeg | Separate executable for GIF and MP4 export | [FFmpeg 7.1](https://github.com/FFmpeg/FFmpeg/tree/n7.1), GPL-2.0-or-later for this build; complete sources and configuration accompany the executable in `_internal/encoder` |
+| x264 | H.264 video encoding in the separate encoder | [VideoLAN x264](https://code.videolan.org/videolan/x264), GPL-2.0-or-later |
+| zlib | PNG compression in the separate encoder | [zlib 1.3.1](https://zlib.net), zlib license |
 
 Qt libraries are shipped as separate dynamic libraries in `_internal`. Their original binaries and notices are preserved. Source for matching versions is available from the linked upstream projects. The package's `third-party-licenses` directory contains the installed dependency license texts collected during the build. Codex, when installed through the application, remains in a separate per-user runtime directory.
 

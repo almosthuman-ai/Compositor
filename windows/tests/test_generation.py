@@ -10,7 +10,7 @@ def test_crop_only_candidate_stale_rejection_and_retained_source(tmp_path):
     settings=Settings(tmp_path); settings.key=lambda _: 'test-only'; finished=threading.Event(); received=[]; calls=[]
     def provider(config,key,prompt,images,size):
         calls.append(images)
-        assert Image.open(images[0]).size==(16,16)
+        assert Image.open(images[0]).size==(1024,1024)
         image=Image.new('RGBA',(24,24),'blue'); buf=io.BytesIO(); image.save(buf,'PNG'); return buf.getvalue(),{'test':True}
     def done(job):
         received.append(job)
@@ -22,7 +22,8 @@ def test_crop_only_candidate_stale_rejection_and_retained_source(tmp_path):
     engine.apply(d,job['id']); assert d.render().getpixel((20,20))==(0,0,255,255); assert d.render().getpixel((10,10))==(255,0,0,255)
     d.execute('undo'); assert d.render().getpixel((20,20))==(255,0,0,255)
     # Native output remains intact even though application resized a copy.
-    assert Image.open(received[-1]['result']).size==(24,24)
+    assert Image.open(Path(received[-1]['result']).parent/'provider-original').size==(24,24)
+    assert Image.open(received[-1]['result']).size==(1024,1024)
     engine.pool.shutdown()
 
 def test_late_result_cannot_overwrite_newer_art(tmp_path):

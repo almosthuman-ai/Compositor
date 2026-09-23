@@ -1,0 +1,17 @@
+[
+  {
+    "file": "ffmpeg-7.1.tar.xz",
+    "url": "https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz",
+    "sha256": "40973d44970dbc83ef302b0609f2e74982be2d85916dd2ee7472d30678a7abe6"
+  },
+  {
+    "file": "zlib-1.3.1.tar.gz",
+    "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+    "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+  },
+  {
+    "file": "x264-source.tar",
+    "repository": "https://code.videolan.org/videolan/x264.git",
+    "commit": "0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee"
+  }
+]

@@ -44,7 +44,8 @@ def test_native_subscription_candidate_uses_prepared_crop_and_preserves_original
     ws.dispatch('apply_generation',{'jobId':job['id']})
     assert ws.document().render().getpixel((10,10))==(0,0,255,255)
     assert ws.document().render().getpixel((2,2))==(255,0,0,255)
-    assert Path(job['result']).read_bytes()==native.read_bytes()
+    assert (Path(job['result']).parent/'provider-original').read_bytes()==native.read_bytes()
+    assert Image.open(job['result']).size==tuple(prepared['workingSize'])
     ws.generation.pool.shutdown()
 
 

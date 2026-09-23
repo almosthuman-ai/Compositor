@@ -9,6 +9,8 @@ try {
     function Get-CompositorSourceSignature {
         $sourceFiles = @(Get-ChildItem -LiteralPath 'windows/compositor' -Recurse -File | Where-Object { $_.Extension -in @('.py','.md','.json','.js','.html','.txt') })
         $sourceFiles += Get-Item -LiteralPath 'windows/run.py','windows/Compositor.spec','windows/requirements.txt'
+        $sourceFiles += Get-ChildItem -LiteralPath 'windows/encoder' -File
+        $sourceFiles += Get-Item -LiteralPath 'windows/local/encoder/output/manifest.json'
         return (($sourceFiles | Sort-Object FullName | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }) -join '|')
     }
     $compositorSourceSignature = Get-CompositorSourceSignature

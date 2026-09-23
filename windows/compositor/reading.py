@@ -28,13 +28,18 @@ def export_reading(project, pages, target):
 
 def export_pdf(project,pages,target):
     from PySide6.QtCore import QMarginsF,QRectF,QSizeF
-    from PySide6.QtGui import QFont,QImage,QPainter,QPageLayout,QPageSize,QPdfWriter,QTextDocument
+    from PySide6.QtGui import QFont,QImage,QPainter,QPageLayout,QPageSize,QPdfWriter,QTextDocument,QAbstractTextDocumentLayout,QPalette,QColor
     writer=QPdfWriter(str(target)); writer.setResolution(96)
     writer.setTitle(project['title']); writer.setCreator('Compositor')
     painter=QPainter()
     try:
         for index,(page,image) in enumerate(pages):
-            width,height=image.size
+            source_width,source_height=image.size
+            width,height=source_width,source_height
+            # A sprite's logical grid is not the width of its reading page.
+            # Use a comfortable page width without resampling the stored pixels.
+            if (page['text'].strip() or project['kind']=='book') and width<640:
+                width=640;height=source_height*width/source_width
             # One authored page remains one reading page, at its own aspect ratio.
             # Prose outside the canvas gets real, readable space below the artwork.
             padding=width*.035; prose=None; prose_height=0
@@ -57,10 +62,13 @@ def export_pdf(project,pages,target):
             painter.save(); painter.scale(writer.width()/width,writer.height()/total_height)
             painter.fillRect(QRectF(0,0,width,total_height),'white')
             rgba=image.convert('RGBA'); raw=rgba.tobytes()
-            raster=QImage(raw,width,height,width*4,QImage.Format.Format_RGBA8888)
+            raster=QImage(raw,source_width,source_height,source_width*4,QImage.Format.Format_RGBA8888)
             painter.drawImage(QRectF(0,0,width,height),raster)
             if prose:
-                painter.translate(padding,height+padding); prose.drawContents(painter)
+                painter.translate(padding,height+padding)
+                context=QAbstractTextDocumentLayout.PaintContext()
+                context.palette.setColor(QPalette.ColorRole.Text,QColor('#242424'))
+                prose.documentLayout().draw(painter,context)
             painter.restore()
     finally:
         if painter.isActive(): painter.end()

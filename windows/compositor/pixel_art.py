@@ -3,6 +3,16 @@ from PIL import Image, ImageColor, ImageFilter
 import numpy as np
 
 
+def restrict_palette(image,entries,dither=False):
+    """Map colors to an explicit palette without changing the grid or alpha."""
+    if not 1<=len(entries)<=256:raise ValueError('A palette needs 1 to 256 colors')
+    colors=[ImageColor.getrgb(c) if isinstance(c,str) else tuple(c) for c in entries]
+    palette=Image.new('P',(1,1));values=[channel for color in colors for channel in color]
+    palette.putpalette(values+list(colors[-1])*(256-len(colors)))
+    result=image.convert('RGB').quantize(palette=palette,dither=Image.Dither.FLOYDSTEINBERG if dither else Image.Dither.NONE).convert('RGBA')
+    result.putalpha(image.convert('RGBA').getchannel('A'));return result
+
+
 def convert(image,args):
     width,height=int(args.get('width',256)),int(args.get('height',256))
     if not 1<=width<=2048 or not 1<=height<=2048: raise ValueError('Choose a pixel canvas between 1 and 2048 pixels per side')
@@ -21,18 +31,13 @@ def convert(image,args):
     if custom:
         if not 2<=len(custom)<=256: raise ValueError('A palette needs 2 to 256 colors')
         entries=[ImageColor.getrgb(color) for color in custom]
-        palette=Image.new('P',(1,1)); values=[channel for color in entries for channel in color]
-        palette.putpalette(values+list(entries[-1])*(256-len(entries)))
     else:
         # Transparent pixels must not consume colors in the artwork's palette.
         samples=np.asarray(rgb)[visible]
         if not len(samples): samples=np.array([[0,0,0]],dtype=np.uint8)
         reduced=Image.fromarray(samples.reshape(1,-1,3)).quantize(colors=colors,method=Image.Quantize.MAXCOVERAGE,kmeans=3)
         table=reduced.getpalette(); entries=[table[index*3:index*3+3] for _,index in reduced.getcolors()]
-        palette=Image.new('P',(1,1)); values=[channel for color in entries for channel in color]
-        palette.putpalette(values+list(entries[-1])*(256-len(entries)))
-    indexed=rgb.quantize(palette=palette,dither=Image.Dither.FLOYDSTEINBERG if args.get('dither',False) else Image.Dither.NONE)
-    result=indexed.convert('RGBA'); result.putalpha(alpha)
+    result=restrict_palette(rgb,entries,args.get('dither',False));result.putalpha(alpha)
     used=sorted({tuple(color) for color in np.asarray(result)[visible,:3]})
     return result,{'palette':['#%02x%02x%02x'%color for color in used],'conversion':{**args,'width':width,'height':height},'sampling':'nearest'}
 

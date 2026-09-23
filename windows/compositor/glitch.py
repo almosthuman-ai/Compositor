@@ -53,6 +53,7 @@ class GlitchTemple(QObject):
         for request in self.queue:
             job=self.jobs.get(request['id'])
             if job:job.update(status='failed',error=error);self.persist(job)
+            self.compositions.pop(request['id'],None)
             callback=self.callbacks.pop(request['id'],None)
             if callback:callback({'error':error})
         self.queue.clear();self.catalog=None
@@ -74,6 +75,7 @@ class GlitchTemple(QObject):
     def data_url(path): return 'data:image/png;base64,'+base64.b64encode(Path(path).read_bytes()).decode()
 
     def fail_current(self,error):
+        self.compositions.pop(self.current,None)
         if self.current in self.jobs:
             job=self.jobs[self.current]; job.update(status='failed',error=error); self.persist(job)
         callback=self.callbacks.pop(self.current,None)
@@ -100,10 +102,18 @@ class GlitchTemple(QObject):
                     if job.get('preserveAlpha'):
                         with Image.open(folder/'source.png') as source: image.putalpha(source.convert('RGBA').getchannel('A'))
                     job['recipe']=result['recipe']
+                    image=self.finish_pixels(image,job['recipe'])
                     if job.get('kind')=='loop': self.accept_frame(job,image)
                     else:
                         path=folder/'result.png'; image.save(path)
+                        composition=self.compositions.pop(job['id'])
+                        if job['source']=='treatment':
+                            original=composition.layer(job['sourceLayerId']);original.image=original.effect_source;composition._cache=None
+                        composition.render().save(folder/'before.png')
+                        with Image.open(folder/'source.png') as source:self.prepare_layer(composition,job,image,source.convert('RGBA'))
+                        composition.render().save(folder/'composition.png')
                         job.update(status='complete',result=str(path),finished=time.time())
+                        job.update(compositionResult=str(folder/'composition.png'),originalComposition=str(folder/'before.png'))
                         if job.get('autoApply'):
                             try: self.apply(job['id'])
                             except Exception as error: job['applyError']=str(error)
@@ -117,6 +127,15 @@ class GlitchTemple(QObject):
         self.queue.append({'id':request_id,'operation':operation,'recipe':recipe,**args}); self.pump()
 
     def vary(self,recipe,kind,callback): self.transform(recipe,'vary',callback,kind=kind)
+
+    @staticmethod
+    def finish_pixels(image,recipe):
+        finish=recipe.get('compositor',{}).get('pixelFinish',{})
+        if finish.get('paletteMode')=='document' and finish.get('palette'):
+            from .pixel_art import restrict_palette
+            image=restrict_palette(image,finish['palette'],finish.get('dither',False))
+        if finish.get('hardAlpha'):image.putalpha(image.getchannel('A').point(lambda v:255 if v>=128 else 0))
+        return image
 
     def submit(self,document,args):
         self.start(); source_mode=args.get('source','layer'); layer=None; export_path=None
@@ -142,6 +161,13 @@ class GlitchTemple(QObject):
         if len(recipe.get('effects',[]))>32: raise ValueError('Use at most 32 effects in one treatment')
         if recipe.get('schemaVersion')!=1 or not isinstance(recipe.get('effects'),list):raise ValueError('Choose a Glitch Temple recipe')
         recipe.update(renderWidth=image.width,renderHeight=image.height,renderSize=max(image.size),layers=[])
+        if document.pixel_art or recipe.get('compositor',{}).get('pixelFinish'):
+            integration=recipe.setdefault('compositor',{})
+            finish=integration.setdefault('pixelFinish',{'paletteMode':'document' if document.pixel_art.get('palette') else 'effect','hardAlpha':True,'dither':False})
+            if finish.get('paletteMode') not in ('document','effect'):raise ValueError('Choose document palette or effect colors')
+            if finish['paletteMode']=='document' and (not export_path or not finish.get('palette')):
+                finish['palette']=copy.deepcopy(document.pixel_art.get('palette') or finish.get('palette',[]))
+                if not finish['palette']:raise ValueError('This document has no palette. Choose Effect colors or convert the artwork to a limited palette first.')
         job_id=str(uuid.uuid4()); folder=self.root/job_id; folder.mkdir()
         image.save(folder/'source.png')
         selection=None
@@ -151,14 +177,14 @@ class GlitchTemple(QObject):
              'source':source_mode,'engineSource':engine_source,'sourceLayerId':layer.id if layer else None,'size':list(image.size),'recipe':recipe,
              'preserveAlpha':bool(args.get('preserveAlpha',layer.provenance.get('glitchTemple',{}).get('preserveAlpha',True) if source_mode=='treatment' else source_mode=='layer')),'selection':selection,
              'name':str(args.get('name','Glitch Temple treatment')),'autoApply':bool(args.get('autoApply',False))}
+        composition=Document();composition.restore(document.snapshot());self.compositions[job_id]=composition
         if export_path:
             frame_count=max(2,min(240,int(args.get('frames',recipe.get('loopFrames',36)))))
             fps=max(1,min(30,int(args.get('fps',recipe.get('loopFps',12)))))
             maximum=max(32,min(3840,int(args.get('maxDimension',960))))
             ratio=min(1,maximum/max(document.width,document.height))
             output_size=[max(1,round(document.width*ratio)),max(1,round(document.height*ratio))]
-            composition=Document();composition.restore(document.snapshot())
-            composition.save(folder/'composition.compwin',mark_saved=False);self.compositions[job_id]=composition
+            composition.save(folder/'composition.compwin',mark_saved=False)
             job.update(kind='loop',exportPath=str(export_path),frames=frame_count,fps=fps,framesRendered=0,
                        outputSize=output_size,autoApply=False,pixelArt=bool(document.pixel_art))
         self.jobs[job_id]=job; self.persist(job)
@@ -170,6 +196,7 @@ class GlitchTemple(QObject):
         folder=self.root/job['id'];composition=self.compositions[job['id']]
         composition.layer(job['sourceLayerId']).image=image;composition._cache=None
         output=composition.render().resize(tuple(job['outputSize']),Image.Resampling.NEAREST if job['pixelArt'] else Image.Resampling.LANCZOS)
+        job['hasTransparency']=job.get('hasTransparency',False) or output.getchannel('A').getextrema()[0]<255
         number=job['framesRendered'];output.save(folder/f'frame-{number:04d}.png')
         if number==0:
             output.save(folder/'result.png');job['result']=str(folder/'result.png')
@@ -181,10 +208,10 @@ class GlitchTemple(QObject):
         else:self.encode(job)
 
     def encode(self,job):
-        import imageio_ffmpeg
+        from .encoder import executable
         folder=self.root/job['id'];extension=Path(job['exportPath']).suffix.lower();temporary=folder/('loop'+extension)
         command=['-hide_banner','-loglevel','error','-y','-framerate',str(job['fps']),'-i',str(folder/'frame-%04d.png')]
-        if extension=='.gif':command+=['-filter_complex','[0:v]split[a][b];[a]palettegen=reserve_transparent=1[p];[b][p]paletteuse=dither=none','-loop','0']
+        if extension=='.gif':command+=['-filter_complex',f'[0:v]split[a][b];[a]palettegen=reserve_transparent={int(job.get("hasTransparency",True))}[p];[b][p]paletteuse=dither=none','-loop','0']
         else:command+=['-vf','pad=ceil(iw/2)*2:ceil(ih/2)*2:color=black','-c:v','libx264','-pix_fmt','yuv420p','-crf','18','-movflags','+faststart']
         command.append(str(temporary))
         process=QProcess(self);self.encoders[job['id']]=process
@@ -204,7 +231,7 @@ class GlitchTemple(QObject):
             self.persist(job);process.deleteLater()
         process.finished.connect(finished)
         process.errorOccurred.connect(lambda error:finished(-1) if error==QProcess.ProcessError.FailedToStart else None)
-        job['status']='encoding';self.persist(job);process.start(imageio_ffmpeg.get_ffmpeg_exe(),command)
+        job['status']='encoding';self.persist(job);process.start(str(executable()),command)
 
     def shutdown(self):
         for job in self.jobs.values():
@@ -229,21 +256,25 @@ class GlitchTemple(QObject):
         try:
             old=document.layer(job['sourceLayerId']) if job.get('sourceLayerId') else None
             if old and old.locked: raise ValueError('Unlock the source layer before applying this treatment')
-            if job['source']=='treatment': layer=old
-            elif old:
-                layer=old.clone(); layer.id=str(uuid.uuid4()); old.visible=False; document.active=old.id; document.add(layer)
-            else: layer=Layer(); document.add(layer)
-            layer.kind='raster'; layer.image=result; layer.effect_source=source; layer.name=job['name']; layer.visible=True
-            layer.params={'glitchRecipe':copy.deepcopy(job['recipe'])}
-            layer.provenance={**layer.provenance,'glitchTemple':{'jobId':job_id,'engine':'Canvas','sourceStateId':job['sourceStateId'],'preserveAlpha':job['preserveAlpha'],'sourceKind':job['engineSource']}}
-            if not old: layer.resampling='nearest' if document.pixel_art else 'smooth'
-            if job.get('selection'):
-                with Image.open(folder/'selection.png') as mask: layer.mask=mask.convert('L')
-            document._validate(); document.active=layer.id
+            layer=self.prepare_layer(document,job,result,source);document._validate()
         except Exception: document.restore(before); raise
         document.history.append(('Glitch Temple',before)); document.history=document.history[-60:]; document.future=[]
         document.state_id=str(uuid.uuid4()); document.revision+=1; document._cache=None
         job.update(applied=True,appliedLayer=layer.id); self.persist(job); self.ws.notify(); return document.info()
+
+    def prepare_layer(self,document,job,result,source):
+        old=document.layer(job['sourceLayerId']) if job.get('sourceLayerId') else None
+        if job['source']=='treatment':layer=old
+        elif old:
+            layer=old.clone();layer.id=str(uuid.uuid4());old.visible=False;document.active=old.id;document.add(layer)
+        else:layer=Layer();document.add(layer)
+        layer.kind='raster';layer.image=result;layer.effect_source=source;layer.name=job['name'];layer.visible=True
+        layer.params={'glitchRecipe':copy.deepcopy(job['recipe'])}
+        layer.provenance={**layer.provenance,'glitchTemple':{'jobId':job['id'],'engine':'Canvas','sourceStateId':job['sourceStateId'],'preserveAlpha':job['preserveAlpha'],'sourceKind':job.get('engineSource',job['source'])}}
+        if document.pixel_art or not old:layer.resampling='nearest' if document.pixel_art else 'smooth'
+        if job.get('selection'):
+            with Image.open(self.root/job['id']/'selection.png') as mask:layer.mask=mask.convert('L')
+        document.active=layer.id;document._cache=None;return layer
 
     def dispatch(self,args):
         self.start(); operation=args.get('operation','catalog')
@@ -258,7 +289,9 @@ class GlitchTemple(QObject):
             self.pump();return copy.deepcopy(job)
         if operation=='capture':
             job=self.jobs[args['jobId']]
-            path=job.get('result')
+            scope=args.get('scope','composition')
+            if scope not in ('composition','layer','original'):raise ValueError('Choose composition, layer or original')
+            path=job.get('originalComposition') if scope=='original' else job.get('compositionResult',job.get('result')) if scope=='composition' else job.get('result')
             if not path: raise ValueError('Wait for the treatment to finish')
             with Image.open(path) as image:
                 image.thumbnail((int(args.get('maxDimension',1600)),)*2,Image.Resampling.NEAREST)

@@ -43,13 +43,17 @@ class GlitchDialog(QDialog):
         self.layer_id=layer.id if layer else None
         if layer and layer.effect_source is not None: self.source.addItem('Original source','treatment'); self.source.setCurrentIndex(3)
         if not layer:self.source.setCurrentIndex(2)
-        top.addWidget(self.source); self.source.currentIndexChanged.connect(self.dirty)
-        self.original=QCheckBox('Original'); self.original.toggled.connect(self.show_image); top.addWidget(self.original)
-        self.preserve=QCheckBox('Preserve transparency'); self.preserve.setChecked(layer.provenance.get('glitchTemple',{}).get('preserveAlpha',True) if layer else True); self.preserve.toggled.connect(self.dirty); top.addWidget(self.preserve)
+        self.source.setMinimumHeight(32);top.addWidget(self.source); self.source.currentIndexChanged.connect(self.dirty)
+        preview_options=QHBoxLayout();layout.addLayout(preview_options)
+        self.original=QCheckBox('Original'); self.original.toggled.connect(self.show_image); preview_options.addWidget(self.original)
+        self.composition=QCheckBox('Composition');self.composition.setChecked(True);self.composition.toggled.connect(self.show_image);preview_options.addWidget(self.composition)
+        self.preserve=QCheckBox('Preserve transparency'); self.preserve.setChecked(layer.provenance.get('glitchTemple',{}).get('preserveAlpha',True) if layer else True); self.preserve.toggled.connect(self.dirty); preview_options.addWidget(self.preserve)
+        for widget in (self.original,self.composition,self.preserve):widget.setMinimumHeight(32)
+        preview_options.addStretch()
         split=QSplitter(); layout.addWidget(split,1)
         self.scene=QGraphicsScene(); self.view=QGraphicsView(self.scene); self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.image=QGraphicsPixmapItem(); self.scene.addItem(self.image); split.addWidget(self.view)
-        self.zoom=QComboBox();self.zoom.addItems(['Fit','100%','200%','400%','800%']);self.zoom.setMinimumHeight(32);self.zoom.setAccessibleName('Preview zoom');top.addWidget(self.zoom);self.zoom.currentTextChanged.connect(self.set_zoom)
+        self.zoom=QComboBox();self.zoom.addItems(['Fit','100%','200%','400%','800%']);self.zoom.setMinimumHeight(32);self.zoom.setAccessibleName('Preview zoom');preview_options.addWidget(self.zoom);self.zoom.currentTextChanged.connect(self.set_zoom)
         controls=QWidget(); controls.setMinimumWidth(390); controls.setMaximumWidth(470); side=QVBoxLayout(controls); split.addWidget(controls); split.setSizes([740,420])
         addrow=QHBoxLayout(); self.library=QComboBox(); addrow.addWidget(self.library,1)
         add=self.button('Add effect',self.add_effect); addrow.addWidget(add); side.addLayout(addrow)
@@ -72,9 +76,11 @@ class GlitchDialog(QDialog):
         bottom.addStretch(); self.apply_button=self.button('Apply treatment',self.apply); self.apply_button.setEnabled(False); bottom.addWidget(self.apply_button)
         self.gif_button=self.button('Export GIF…',lambda:self.export_loop('gif')); bottom.addWidget(self.gif_button)
         self.mp4_button=self.button('Export MP4…',lambda:self.export_loop('mp4')); bottom.addWidget(self.mp4_button)
+        self.mp4_button.setToolTip('MP4 compresses colors and has no transparency. Use PNG for exact colors, or GIF for palette-limited animation.')
         self.gif_button.setEnabled(False);self.mp4_button.setEnabled(False)
         bottom.addWidget(self.button('Close',self.close))
         self.ws.dispatch('glitch',{'operation':'catalog'}); self.engine=self.ws.glitch; self.engine.changed.connect(self.refresh_job)
+        self.ws.changed.connect(self.refresh_job)
         self.saved_recipe=copy.deepcopy(layer.params.get('glitchRecipe')) if layer and layer.effect_source is not None else None
         QTimer.singleShot(0,self.refresh_job)
         QTimer.singleShot(0,self.show_image)
@@ -131,7 +137,7 @@ class GlitchDialog(QDialog):
     def export_availability(self):
         layer=next((l for l in self.document.layers if l.id==self.layer_id),None)
         loop=self.engine.jobs.get(self.loop_id,{})
-        keys=('effects','palette','paletteSettings','colorMode','sourcePresence','seed','colorSeed','iteration')
+        keys=('effects','palette','paletteSettings','colorMode','sourcePresence','seed','colorSeed','iteration','compositor')
         matches=bool(layer and layer.effect_source is not None and self.recipe and
                      all(self.recipe.get(k)==layer.params.get('glitchRecipe',{}).get(k) for k in keys))
         available=matches and loop.get('status') not in ('queued','running','encoding','stopping')
@@ -145,6 +151,13 @@ class GlitchDialog(QDialog):
             item=QListWidgetItem(name); item.setFlags(item.flags()|Qt.ItemFlag.ItemIsUserCheckable); item.setCheckState(Qt.CheckState.Checked if effect['enabled'] else Qt.CheckState.Unchecked); item.setSizeHint(item.sizeHint().expandedTo(QSize(32,32))); self.chain.addItem(item)
         self.chain.setCurrentRow(max(0,min(index,len(self.recipe['effects'])-1)))
         self.clear(self.color_form); self.control(self.color_form,self.recipe,'colorMode'); self.control(self.color_form,self.recipe,'sourcePresence')
+        if self.document.pixel_art or self.recipe.get('compositor',{}).get('pixelFinish'):
+            finish=self.recipe.setdefault('compositor',{}).setdefault('pixelFinish',{'paletteMode':'document' if self.document.pixel_art.get('palette') else 'effect','hardAlpha':True,'dither':False})
+            palette_mode=self.control(self.color_form,finish,'paletteMode','Pixel colors',choices=[('Document palette','document'),('Effect colors','effect')])
+            self.control(self.color_form,finish,'hardAlpha','Hard transparency edges')
+            dither=self.control(self.color_form,finish,'dither','Dither to palette')
+            dither.setEnabled(finish['paletteMode']=='document')
+            palette_mode.currentIndexChanged.connect(lambda _:dither.setEnabled(finish['paletteMode']=='document'))
         for i in range(4):
             data={'color':self.recipe['palette'][i]}; button=self.button(f'#{data["color"]:06x}',lambda checked=False,i=i:self.palette_color(i)); self.color_form.addRow(f'Palette {i+1}',button)
         for key in self.recipe['paletteSettings']:
@@ -284,9 +297,10 @@ class GlitchDialog(QDialog):
         job=self.engine.jobs[self.job_id];busy=job['status'] in ('queued','running','stopping')
         self.render_button.setEnabled(not busy);self.cancel_button.setEnabled(busy)
         current=self.local_revision==self.render_revision
-        self.apply_button.setEnabled(job['status']=='complete' and current and not job.get('applied'))
+        source_current=self.document.id in self.ws.documents and self.document.state_id==job['sourceStateId']
+        self.apply_button.setEnabled(job['status']=='complete' and current and source_current and not job.get('applied'))
         if job['status']=='complete' and not loop:
-            self.show_image();self.status.setText(f'{job["size"][0]} × {job["size"][1]} · '+('Treatment applied. Use Undo to restore the previous artwork.' if job.get('applied') else 'Ready to apply.' if current else 'Previous render. Settings have changed.'))
+            self.show_image();self.status.setText(f'{job["size"][0]} × {job["size"][1]} · '+('Treatment applied. Use Undo to restore the previous artwork.' if job.get('applied') else 'The artwork changed. Render again before applying.' if not source_current else 'Ready to apply.' if current else 'Previous render. Settings have changed.'))
         elif job['status']=='failed':self.status.setText(job.get('error','Rendering failed'))
         else:self.status.setText({'queued':'Waiting for the renderer…','running':'Rendering the full-resolution treatment…','stopping':'Stopping after the current render…','cancelled':'Render cancelled.'}.get(job['status'],job['status']))
 
@@ -294,13 +308,19 @@ class GlitchDialog(QDialog):
         from .ui import pixmap
         if self.job_id:
             job=self.engine.jobs[self.job_id]
-            path=self.engine.root/job['id']/'source.png' if self.original.isChecked() else job.get('result')
+            if self.composition.isChecked():path=job.get('originalComposition') if self.original.isChecked() else job.get('compositionResult',job.get('result'))
+            else:path=self.engine.root/job['id']/'source.png' if self.original.isChecked() else job.get('result')
             if not path:return
             with Image.open(path) as image:im=image.convert('RGBA')
         else:
             from . import pixels
             layer=next((l for l in self.document.layers if l.id==self.layer_id),None)
-            im=layer.effect_source if layer and layer.effect_source is not None and self.original.isChecked() else pixels.content(layer) if layer and layer.kind not in ('group','adjustment') else self.document.render()
+            if self.composition.isChecked():
+                from .document import Document
+                preview=Document();preview.restore(self.document.snapshot())
+                if layer and layer.effect_source is not None and self.original.isChecked():preview.layer(layer.id).image=layer.effect_source
+                im=preview.render()
+            else:im=layer.effect_source if layer and layer.effect_source is not None and self.original.isChecked() else pixels.content(layer) if layer and layer.kind not in ('group','adjustment') else self.document.render()
         self.image.setPixmap(pixmap(im));self.image.setTransformationMode(Qt.TransformationMode.FastTransformation if self.document.pixel_art else Qt.TransformationMode.SmoothTransformation)
         self.scene.setSceneRect(self.image.boundingRect());self.set_zoom()
 

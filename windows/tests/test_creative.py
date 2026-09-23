@@ -24,8 +24,8 @@ def test_project_prompt_cast_reference_order_and_portable_style_snapshot(tmp_pat
     second=act('add_character',name='Bird',description='A tiny blue bird.')['characters'][-1]
     act('add_reference',path=str(image),characterId=first['id']); act('add_reference',path=str(image),characterId=second['id'])
     act('update_page',characterIds=[first['id']],prompt='Mina waits under a streetlight.')
-    request=ws.dispatch('preview_generation',{'prompt':'Mina waits under a streetlight.','kind':'patch'})
-    assert request['prompt'].startswith('INK BEFORE') and request['prompt'].endswith('INK AFTER')
+    request=ws.dispatch('preview_generation',{'prompt':'Mina waits under a streetlight.','kind':'patch','box':{'x':8,'y':8,'width':16,'height':16}})
+    assert request['prompt'].startswith('INK BEFORE') and '\n\nINK AFTER\n\n' in request['prompt']
     assert 'Image 1 is the source region' in request['prompt'] and 'Image 2: style reference' in request['prompt'] and 'Image 3: character reference — Mina' in request['prompt']
     assert 'Bird' not in request['prompt'] and [c['id'] for c in request['creativeContext']['characters']]==[first['id']]
     assert len(request['references'])==2 and 'courier loses' in request['prompt']
@@ -34,7 +34,7 @@ def test_project_prompt_cast_reference_order_and_portable_style_snapshot(tmp_pat
     bundle=tmp_path/'courier.compbook'; act('save',path=str(bundle))
     other=Workspace(Settings(tmp_path/'other'),restore=False); loaded=other.dispatch('production',{'operation':'open','args':{'path':str(bundle)}})
     assert loaded['style']['prefix']=='INK BEFORE' and loaded['pages'][0]['characterIds']==[first['id']]
-    copy=other.dispatch('preview_generation',{'prompt':'Mina waits under a streetlight.','kind':'patch'})
+    copy=other.dispatch('preview_generation',{'prompt':'Mina waits under a streetlight.','kind':'patch','box':{'x':8,'y':8,'width':16,'height':16}})
     assert copy['prompt']==request['prompt'] and all(Path(r['path']).is_file() for r in copy['references'])
     assert all(str(tmp_path/'other') in r['path'] for r in copy['references'])
     act('select',pageId=project['pages'][1]['id'])

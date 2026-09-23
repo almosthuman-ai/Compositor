@@ -22,7 +22,21 @@ jobs:
       - name: Verify
         shell: pwsh
         run: .venv/Scripts/python.exe -m pytest windows/tests -q
-      - name: Build
+      - name: Install encoder build tools
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf make
+      - name: Prepare encoder sources
+        shell: pwsh
+        run: .venv/Scripts/python.exe windows/encoder/prepare.py
+      - name: Build animation encoder
+        shell: msys2 {0}
+        run: bash windows/encoder/build.sh
+      - name: Package encoder sources
+        shell: pwsh
+        run: .venv/Scripts/python.exe windows/encoder/package.py
+      - name: Build application
         shell: pwsh
         run: windows/build.ps1
       - name: Verify packaged GUI and MCP

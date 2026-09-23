@@ -24,15 +24,17 @@ Regional generation uses surrounding context on a working image with dimensions 
 
 Choose **Filters → Glitch Temple…** to build a treatment with Tai Mei's sorting, signal, spatial, dither and character effects. Add effects, reorder them, and use **Where** to restrict each effect to brightness, edges, color or a geometric pattern. ASCII, Zhuyin, PETSCII Study, Ultimate Sort and Wizprocess expose their additional controls in the Effect tab.
 
-Render a preview, compare it with **Original**, then apply it. A layer treatment keeps the original underneath and retains its source pixels and recipe inside the new layer. Reopen Glitch Temple with that layer selected to revise from the retained source. Save `.compwin` to carry the treatment with the document. Keep subsequent hand-painted details on separate layers if you want them to survive another render of the treatment.
+Render a preview, compare it with **Original**, then apply it. **Composition** shows the treatment among the document's other layers, including masks, transforms and lettering; turn it off to inspect the treatment alone. A layer treatment keeps the original underneath and retains its source pixels and recipe inside the new layer. Reopen Glitch Temple with that layer selected to revise from the retained source. Save `.compwin` to carry the treatment with the document. Keep subsequent hand-painted details on separate layers if you want them to survive another render of the treatment.
 
 The Color tab supports four chosen colors, colors extracted from the source, and generated color relationships. **Build palette from settings** updates the swatches. Save and load recipes to reuse a treatment; **New structure** and **New colors** produce new seeds while preserving the current source.
 
-Apply the treatment before exporting a GIF or MP4 loop. Other document layers, including captions and painted finishing, remain in the composition. Set frame count and speed in Recipe. The dialog exports within 960 pixels; MCP can choose another maximum dimension. Pixel documents use nearest-neighbor export sampling. GIF preserves transparency; MP4 uses H.264 and pads odd dimensions to even with black. Stop cancels the current render or export.
+Pixel documents default to **Document palette** and **Hard transparency edges**. These controls finish the treatment on its original pixel grid, including every animation frame. Choose **Effect colors** to allow colors outside the document palette, or enable **Dither to palette** for a stippled transition between palette colors.
+
+Apply the treatment before exporting a GIF or MP4 loop. Other document layers, including captions and painted finishing, remain in the composition. Set frame count and speed in Recipe. The dialog exports within 960 pixels; MCP can choose another maximum dimension. Pixel documents use nearest-neighbor export sampling. GIF preserves transparency and supports up to 256 colors per frame. MP4 compresses colors, has no transparency, and pads odd dimensions to even with black. Use PNG or a palette-limited GIF when exact pixel colors matter. Stop cancels the current render or export.
 
 The installed app includes the local renderer and animation encoder. Glitch Temple does not require Processing, Java, Node, or a separate installation. This integration uses its Canvas algorithms; the original Processing renderer and byte-native PETSCII editing are not included. See [source provenance and rebuilding](glitch-engine/README.md).
 
-`compositor_glitch` exposes the same effect catalog, recipes, renders, application, variation and loop exports to the embedded collaborator and external MCP clients. `compositor_inspect_glitch` returns the actual candidate image. These operations do not activate the desktop window.
+`compositor_glitch` exposes the same effect catalog, recipes, renders, application, variation and loop exports to the embedded collaborator and external MCP clients. `compositor_inspect_glitch` shows the captured composition by default; `scope` can also select the isolated layer or original composition. These operations do not activate the desktop window.
 
 ## Run from source
 
@@ -49,6 +51,8 @@ powershell -ExecutionPolicy Bypass -File windows/setup.ps1
 The editor works without an account. Save `.compwin` documents to retain editable layers, masks, typography, adjustments and generation provenance. Export PNG, JPEG, WebP or TIFF for other applications. Imported originals stay intact.
 
 ## Build a standalone app
+
+First [build and package the animation encoder](encoder/README.md). Its complete corresponding source archive ships beside the executable. Source users who need GIF or MP4 export also need this build; the installed application includes it.
 
 ```powershell
 powershell -File windows/build.ps1
@@ -73,7 +77,7 @@ Runtime installation, OAuth sign-in and a signed-in GPT-6-Sol conversation have 
 
 In Settings, choose an OpenAI-compatible or Gemini provider, enter its image model and save your API key. Keys are stored in Windows Credential Manager; `OPENAI_API_KEY` and `GEMINI_API_KEY` environment variables are also supported. A compatible OpenAI endpoint can be configured for another provider.
 
-Generate a new image, edit the composite, or refine a selected region. Region edits send the exact crop and your chosen references. Choose a built-in style or create one in the style library. Each profile can include direction before and after your prompt, plus reference images. **Review prompt** shows the assembled instructions before you generate. Candidates retain their inputs, prompt, provider and native dimensions. Applying a candidate adds a layer; if you changed its source while it was generating, the app keeps the candidate for manual placement.
+Generate a new image, edit the composite, or refine a selected region. Region edits send surrounding context and your chosen references; the saved selection bounds where the result is applied. Choose a built-in style or create one in the style library. Each profile can include direction before and after your prompt, plus reference images. **Review prompt** shows the assembled instructions before you generate. Candidates retain their inputs, prompt, provider and native dimensions. Applying a candidate adds a layer; if you changed its source while it was generating, the app keeps the candidate for manual placement.
 
 **Generate with** selects the API provider or your ChatGPT subscription for images, project pages and character sheets. The subscription route sends the prepared prompt and references to the embedded conversation. It never switches to API billing automatically.
 

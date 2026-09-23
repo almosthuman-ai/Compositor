@@ -8,4 +8,3 @@ pillow-heif==1.8.0
 pytest==9.1.1
 keyring==25.7.0
 pyinstaller==6.22.3
-imageio-ffmpeg==0.6.0
