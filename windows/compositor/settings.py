@@ -25,6 +25,11 @@ class Settings:
 
     def save(self): atomic_json(self.path,self.values)
 
+    def model_for(self,provider):
+        from .providers import MODELS
+        if provider==self.values['provider']:return self.values['model']
+        return self.values.get('provider_models',{}).get(provider,MODELS[provider][0][1])
+
     def artwork_directory(self,source_path=None):
         """Choose a visible initial location, independent of process working directory."""
         configured=self.values.get('artwork_directory')
@@ -51,13 +56,14 @@ class Settings:
         self.save()
 
     def key(self,provider):
-        env='OPENAI_API_KEY' if provider=='openai' else 'GEMINI_API_KEY'
-        if os.environ.get(env): return os.environ[env]
         # Windows Credential Manager via keyring. Keys never appear in settings or MCP replies.
         try:
             import keyring
-            return keyring.get_password('Compositor',provider) or ''
-        except ImportError: return ''
+            saved=keyring.get_password('Compositor',provider)
+            if saved:return saved
+        except ImportError:pass
+        names=('OPENAI_API_KEY',) if provider=='openai' else ('GEMINI_API_KEY','GOOGLE_API_KEY')
+        return next((os.environ[name] for name in names if os.environ.get(name)),'')
 
     def set_key(self,provider,value):
         import keyring

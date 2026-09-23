@@ -14,11 +14,14 @@ def button(row,label,fn):
 class GenerationRoutePicker(QWidget):
     def __init__(self,workspace):
         super().__init__(); self.ws=workspace; row=QHBoxLayout(self); row.setContentsMargins(0,0,0,0); row.addWidget(QLabel('Generate with'))
-        self.choice=QComboBox(); self.choice.setAccessibleName('Generation route'); self.choice.addItem('API provider','api'); self.choice.addItem('ChatGPT subscription','chatgpt'); row.addWidget(self.choice,1)
+        self.choice=QComboBox(); self.choice.setAccessibleName('Generation route'); self.choice.addItem('ChatGPT subscription','chatgpt'); self.choice.addItem('Google Gemini API','gemini'); self.choice.addItem('OpenAI-compatible API','openai'); row.addWidget(self.choice,1)
         self.choice.currentIndexChanged.connect(self.choose); self.ws.changed.connect(self.refresh); self.refresh()
     def refresh(self):
-        self.choice.blockSignals(True); self.choice.setCurrentIndex(max(0,self.choice.findData(self.ws.settings.values['generationRoute']))); self.choice.blockSignals(False)
-    def choose(self,index): self.ws.dispatch('settings',{'generationRoute':self.choice.itemData(index)})
+        s=self.ws.settings.values; selected='chatgpt' if s['generationRoute']=='chatgpt' else s['provider']
+        self.choice.blockSignals(True); self.choice.setCurrentIndex(max(0,self.choice.findData(selected))); self.choice.blockSignals(False)
+    def choose(self,index):
+        selected=self.choice.itemData(index)
+        self.ws.dispatch('settings',{'generationRoute':'chatgpt'} if selected=='chatgpt' else {'generationRoute':'api','provider':selected})
 
 
 class StyleDialog(QDialog):

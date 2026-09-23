@@ -8,7 +8,7 @@ from PIL import Image
 from . import pixels
 from .chrome import icon, icon_button, Ruler, ColorPanel, LayerDelegate, configure_application
 from .chrome import EditorComboBox as QComboBox
-from PySide6.QtWidgets import QGridLayout, QSizePolicy, QFrame
+from PySide6.QtWidgets import QGridLayout, QSizePolicy, QFrame, QMenu
 from .gesture import EditPreview
 
 STYLE='''
@@ -227,6 +227,15 @@ class Canvas(QGraphicsView):
                 if l.x<=point.x()<l.x+im.width*abs(l.sx) and l.y<=point.y()<l.y+im.height*abs(l.sy):
                     d.active=l.id; self.move_origin=(l.x,l.y); self.ws.changed.emit(); break
 
+    def contextMenuEvent(self,event):
+        if not self.ws.active:return
+        menu=QMenu(self)
+        edit=menu.addAction('Edit selected area with AI…'); edit.triggered.connect(self.window.edit_selected_with_ai)
+        crop=menu.addAction('Crop canvas to selection'); crop.triggered.connect(self.window.crop_selection)
+        selected=self.ws.document().selection
+        crop.setEnabled(selected is not None and selected.getbbox() is not None)
+        menu.exec(event.globalPos())
+
     def selection_mode(self,event):
         return 'add' if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 'subtract' if event.modifiers() & Qt.KeyboardModifier.AltModifier else 'replace'
 
@@ -387,6 +396,7 @@ class Editor(QMainWindow):
     def build_menus(self):
         file=self.menuBar().addMenu('&File'); self.action(file,'New…',self.new_document,'Ctrl+N'); self.action(file,'New pixel canvas…',self.new_pixel_document); self.action(file,'Open…',self.open_file,'Ctrl+O'); self.action(file,'Add image as layer…',self.import_file,'Ctrl+Shift+O'); self.action(file,'Save',self.save,'Ctrl+S'); self.action(file,'Save as…',lambda:self.save(True),'Ctrl+Shift+S'); self.action(file,'Export image…',self.export,'Ctrl+Alt+Shift+S'); file.addSeparator(); self.action(file,'Settings…',self.settings_dialog); self.action(file,'Exit',self.close,'Alt+F4')
         edit=self.menuBar().addMenu('&Edit'); self.action(edit,'Undo',lambda:self.edit('undo'),'Ctrl+Z'); self.action(edit,'Redo',lambda:self.edit('redo'),'Ctrl+Shift+Z'); edit.addSeparator(); self.action(edit,'Copy selection to layer',lambda:self.edit('copy_selection'),'Ctrl+J'); self.action(edit,'Cut selection to layer',lambda:self.edit('cut_selection'),'Ctrl+Shift+J'); self.action(edit,'Copy merged to clipboard',self.copy_merged,'Ctrl+Shift+C'); self.action(edit,'Paste image',self.paste,'Ctrl+V'); self.action(edit,'Fill with foreground',lambda:self.edit('fill',{'color':self.color}),'Alt+Backspace'); self.action(edit,'Clear pixels',lambda:self.edit('clear'),'Delete'); self.action(edit,'Content-aware fill',lambda:self.edit('content_fill'),'Shift+Backspace')
+        self.action(edit,'Edit selected area with AI…',self.edit_selected_with_ai,'Ctrl+Alt+G')
         image=self.menuBar().addMenu('&Image'); self.action(image,'Image size…',lambda:self.size_dialog('image_size')); self.action(image,'Canvas size…',lambda:self.size_dialog('canvas_size')); self.action(image,'Crop to selection',self.crop_selection); image.addSeparator(); self.action(image,'Convert to pixel art…',self.pixel_art_dialog)
         layer=self.menuBar().addMenu('&Layer'); self.action(layer,'New transparent layer',lambda:self.edit('add_layer',{'name':'Paint layer'}),'Ctrl+Shift+N'); self.action(layer,'New group',lambda:self.edit('add_layer',{'kind':'group','name':'Group'})); self.action(layer,'Duplicate',lambda:self.edit('duplicate_layer')); self.action(layer,'Rename…',self.rename_layer); self.action(layer,'Delete layer',lambda:self.edit('delete_layer')); self.action(layer,'Rasterize',lambda:self.edit('rasterize')); self.action(layer,'Merge down',lambda:self.edit('merge_down'),'Ctrl+E'); self.action(layer,'Flatten',lambda:self.edit('flatten'),'Ctrl+Shift+E'); self.action(layer,'Flip horizontally',lambda:self.flip('sx')); self.action(layer,'Flip vertically',lambda:self.flip('sy')); self.action(layer,'Layer effects…',self.effects_dialog)
         mask=layer.addMenu('Mask');
@@ -433,6 +443,7 @@ class Editor(QMainWindow):
         self.radial=QCheckBox('Radial'); option(self.radial,{'gradient'})
         self.show_transform=QCheckBox('Transform controls'); self.show_transform.setChecked(True); self.show_transform.toggled.connect(self.canvas.selection_overlay); option(self.show_transform,{'move'})
         self.selection_hint=QLabel('Shift: add    Alt: subtract'); option(self.selection_hint,{'rectangle','ellipse','lasso','wand'})
+        self.selection_ai=QPushButton('Edit with AI…'); self.selection_ai.clicked.connect(self.edit_selected_with_ai); option(self.selection_ai,{'rectangle','ellipse','lasso','wand'})
         spacer=QWidget(); spacer.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Preferred); options.addWidget(spacer)
         for name,label,attribute in [('generate','Generate','generation_dock'),('chat','ChatGPT','chat_dock'),('book','Projects','production_dock')]:
             button=QToolButton(); button.setIcon(icon(name)); button.setIconSize(QSize(18,18)); button.setText(label); button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon); button.setMinimumWidth(96); button.setToolTip('Open '+label); button.clicked.connect(lambda checked=False,attribute=attribute:self.show_panel(getattr(self,attribute))); options.addWidget(button)
@@ -493,12 +504,15 @@ class Editor(QMainWindow):
         row=QHBoxLayout(); row.addWidget(QLabel('Style')); self.gen_style=QComboBox(); self.gen_style.setAccessibleName('Generation style'); row.addWidget(self.gen_style,1)
         style_button=icon_button('effects','Edit styles',self.edit_generation_style); row.addWidget(style_button); layout.addLayout(row)
         self.gen_context=QLabel(); self.gen_context.setWordWrap(True); layout.addWidget(self.gen_context)
-        row=QHBoxLayout(); self.gen_kind=QComboBox(); self.gen_kind.addItem('New image','generate'); self.gen_kind.addItem('Edit whole image','edit'); self.gen_kind.addItem('Refine selected area','patch'); row.addWidget(self.gen_kind)
+        row=QHBoxLayout(); self.gen_kind=QComboBox(); self.gen_kind.addItem('New image','generate'); self.gen_kind.addItem('Edit whole image','edit'); self.gen_kind.addItem('Edit selected area','patch'); row.addWidget(self.gen_kind)
         self.gen_size=QComboBox(); self.gen_size.setEditable(True); self.gen_size.addItems(['Match canvas','1024x1024','1536x1024','1024x1536','2048x1152']); self.gen_size.setAccessibleName('Generation working size'); self.gen_size.setToolTip('Working resolution for generation. Pixel artwork keeps its logical canvas size.'); row.addWidget(self.gen_size); layout.addLayout(row)
+        self.gen_scope=QLabel(); self.gen_scope.setWordWrap(True); layout.addWidget(self.gen_scope)
         row=QHBoxLayout(); row.addWidget(QLabel('Sampling')); self.gen_sampling=QComboBox(); self.gen_sampling.addItem('Document default',None); self.gen_sampling.addItem('Smooth','smooth'); self.gen_sampling.addItem('Nearest neighbor','nearest'); row.addWidget(self.gen_sampling); layout.addLayout(row)
         row=QHBoxLayout(); ref=QPushButton('References…'); ref.clicked.connect(self.choose_references); row.addWidget(ref); self.ref_label=QLabel('None'); row.addWidget(self.ref_label); layout.addLayout(row)
         self.gen_provider_label=QLabel(); self.gen_provider_label.setWordWrap(True); layout.addWidget(self.gen_provider_label)
-        generate=QPushButton('Generate candidate'); generate.clicked.connect(self.generate); layout.addWidget(generate)
+        provider_settings=QPushButton('Image provider settings…'); provider_settings.clicked.connect(self.settings_dialog); layout.addWidget(provider_settings)
+        self.generate_button=QPushButton('Generate candidate'); self.generate_button.clicked.connect(self.generate); layout.addWidget(self.generate_button)
+        self.gen_kind.currentIndexChanged.connect(self.refresh_generation_scope)
         preview=QPushButton('Review prompt…'); preview.clicked.connect(self.preview_prompt); layout.addWidget(preview)
         self.jobs=QListWidget(); self.jobs.setIconSize(QSize(56,48)); layout.addWidget(self.jobs,1)
         row=QHBoxLayout()
@@ -595,7 +609,9 @@ class Editor(QMainWindow):
                 self.jobs.addItem(item)
                 if job['id']==selected: self.jobs.setCurrentItem(item)
             if not self.jobs.currentItem() and self.jobs.count(): self.jobs.setCurrentRow(0)
-            self.gen_provider_label.setText('Uses the account signed in through the ChatGPT panel.' if self.ws.settings.values['generationRoute']=='chatgpt' else f"API provider: {self.ws.settings.values['provider']} · {self.ws.settings.values['model']}")
+            from .providers import model_label
+            self.gen_provider_label.setText('Uses the account signed in through the ChatGPT panel.' if self.ws.settings.values['generationRoute']=='chatgpt' else model_label(self.ws.settings.values['provider'],self.ws.settings.values['model']))
+            self.refresh_generation_scope()
             chosen=self.gen_style.currentData(); self.gen_style.blockSignals(True); self.gen_style.clear(); self.gen_style.addItem('No style',None)
             for style in self.ws.styles.list(): self.gen_style.addItem(style['name'],style['id'])
             linked=self.ws.projects.for_document(self.ws.active)
@@ -789,6 +805,26 @@ class Editor(QMainWindow):
             folder=self.ws.settings.root/'clipboard'; folder.mkdir(exist_ok=True); path=folder/(str(uuid.uuid4())+'.png'); im.save(str(path)); self.edit('import_image',{'path':str(path)})
     def choose_references(self):
         paths,_=QFileDialog.getOpenFileNames(self,'Reference images','','Images (*.png *.jpg *.jpeg *.webp)'); self.references=paths; self.ref_label.setText(f'{len(paths)} selected')
+    def edit_selected_with_ai(self):
+        if not self.ws.active:return
+        self.show_panel(self.generation_dock); self.gen_kind.setCurrentIndex(self.gen_kind.findData('patch'))
+        self.refresh_generation_scope()
+        selection=self.ws.document().selection
+        if selection is None or not selection.getbbox():
+            self.set_tool('rectangle'); self.statusBar().showMessage('Drag around the area to edit, then enter your prompt.',12000)
+        else:self.prompt.setFocus()
+
+    def refresh_generation_scope(self,*args):
+        patch=self.gen_kind.currentData()=='patch'
+        selection=self.ws.document().selection if self.ws.active else None
+        box=selection.getbbox() if selection is not None else None
+        self.generate_button.setEnabled(bool(self.ws.active) and (not patch or bool(box)))
+        if patch:
+            self.gen_scope.setText(f'Selected area: {box[2]-box[0]} × {box[3]-box[1]} px. Review the result before applying it to a new masked layer.' if box else 'Drag a selection on the canvas, then enter your edit prompt.')
+            self.prompt.setPlaceholderText('Describe the change inside your selection…')
+        else:
+            self.gen_scope.setText('Your image stays unchanged until you apply a candidate.'); self.prompt.setPlaceholderText('Describe an image or the change you want…')
+
     def generation_args(self): return {'prompt':self.prompt.toPlainText(),'kind':self.gen_kind.currentData(),'size':None if self.gen_size.currentText()=='Match canvas' else self.gen_size.currentText(),'references':self.references,'styleId':self.gen_style.currentData(),'resampling':self.gen_sampling.currentData()}
     def generate(self): self.run('generate',self.generation_args())
     def generate_with_chat(self,document,args):
@@ -828,7 +864,9 @@ class Editor(QMainWindow):
         if job and job.get('result'): self.edit('import_image',{'path':job['result'],'provenance':{'generationId':job['id']}})
 
     def settings_dialog(self):
-        s=self.ws.settings; dialog=QDialog(self); dialog.setWindowTitle('Settings'); form=QFormLayout(dialog)
+        s=self.ws.settings; dialog=QDialog(self); dialog.setWindowTitle('Settings'); dialog.resize(720,760)
+        root=QVBoxLayout(dialog); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body=QWidget(); form=QFormLayout(body); scroll.setWidget(body); root.addWidget(scroll,1)
         artwork=QLineEdit(s.values.get('artwork_directory','')); artwork.setPlaceholderText(str(s.artwork_directory()))
         artwork_row=QHBoxLayout(); artwork_row.addWidget(artwork); artwork_browse=QPushButton('Browse…'); artwork_row.addWidget(artwork_browse); form.addRow('Artwork folder',artwork_row)
         def browse_artwork():
@@ -836,10 +874,8 @@ class Editor(QMainWindow):
             if path:artwork.setText(path)
         artwork_browse.clicked.connect(browse_artwork)
         artwork_note=QLabel('Save and Export start here until you choose another folder. Your last choices are remembered.'); artwork_note.setWordWrap(True); form.addRow(artwork_note)
-        provider=QComboBox(); provider.addItems(['openai','gemini']); provider.setCurrentText(s.values['provider']); form.addRow('Image provider',provider)
-        model=QLineEdit(s.values['model']); form.addRow('Image model',model)
-        key=QLineEdit(); key.setEchoMode(QLineEdit.EchoMode.Password); key.setPlaceholderText('Leave blank to keep the saved key'); form.addRow('API key',key)
-        endpoint=QLineEdit(s.values['openai_url']); form.addRow('OpenAI-compatible URL',endpoint)
+        from .provider_ui import ImageProviderSettings
+        image_provider=ImageProviderSettings(s,dialog); form.addRow(image_provider)
         studio=QLineEdit(s.values.get('studio_url','')); studio.setPlaceholderText('Optional local production service'); form.addRow('Project connector URL',studio)
         working=QLineEdit(s.values.get('chat_working_directory','')); working.setPlaceholderText('Compositor manages this folder automatically')
         folder_row=QHBoxLayout(); folder_row.addWidget(working); browse=QPushButton('Browse…'); folder_row.addWidget(browse); form.addRow('ChatGPT working folder',folder_row)
@@ -851,11 +887,11 @@ class Editor(QMainWindow):
         reconnect=QPushButton('Reconnect ChatGPT'); reconnect.clicked.connect(self.reconnect_chat); form.addRow(reconnect)
         external=QPushButton('Copy external editor connection'); external.clicked.connect(self.copy_external_connection); form.addRow('External AI tools',external)
         note=QLabel('API keys are stored in Windows Credential Manager.\nChatGPT sign-in is separate and uses your subscription.'); note.setWordWrap(True); form.addRow(note)
-        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel); buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject); form.addRow(buttons)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel); buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject); root.addWidget(buttons)
         if dialog.exec()==QDialog.DialogCode.Accepted:
             try:
-                if key.text(): s.set_key(provider.currentText(),key.text())
-                self.run('settings',{'provider':provider.currentText(),'model':model.text(),'openai_url':endpoint.text(),'studio_url':studio.text(),'chat_working_directory':working.text().strip(),'artwork_directory':artwork.text().strip()})
+                values=image_provider.values(); image_provider.save_keys()
+                self.run('settings',{**values,'studio_url':studio.text(),'chat_working_directory':working.text().strip(),'artwork_directory':artwork.text().strip()})
             except Exception as e: QMessageBox.warning(self,'Settings',str(e))
     def open_studio(self):
         url=self.ws.settings.values.get('studio_url')

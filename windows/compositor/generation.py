@@ -1,7 +1,7 @@
 """Provider-independent immutable requests and candidates. Qt owns application, workers own network I/O."""
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-import base64, copy, io, json, os, time, urllib.request, urllib.error, uuid
+import base64, copy, io, json, math, os, time, urllib.request, urllib.error, uuid
 from PIL import Image
 from .settings import atomic_json
 from .generation_source import prepare_source, region_instruction, normalize_candidate, provider_sizes
@@ -43,13 +43,18 @@ def generate_provider(config,key,prompt,images,size,mask=None):
     if provider=='gemini':
         parts=[{'text':prompt}]
         parts.extend({'inlineData':{'mimeType':'image/png','data':base64.b64encode(Path(p).read_bytes()).decode()}} for p in images)
-        config_image={'imageSize':config.get('imageSize','2K')}
-        if config.get('aspectRatio'): config_image['aspectRatio']=config['aspectRatio']
+        config_image={} if model.startswith('gemini-2.5-') else {'imageSize':config.get('imageSize','2K')}
+        ratios=('1:1','2:3','3:2','3:4','4:3','4:5','5:4','9:16','16:9','21:9')
+        width,height=map(int,size.split('x'))
+        config_image['aspectRatio']=config.get('aspectRatio') or min(ratios,key=lambda ratio:abs(math.log((int(ratio.split(':')[0])/int(ratio.split(':')[1]))/(width/height))))
         endpoint=config.get('gemini_url','https://generativelanguage.googleapis.com/v1beta').rstrip('/')
         result=http_json(f'{endpoint}/models/{model}:generateContent',{'contents':[{'parts':parts}],'generationConfig':{'responseModalities':['TEXT','IMAGE'],'imageConfig':config_image}},{'x-goog-api-key':key})
-        output=result.get('candidates',[{}])[0].get('content',{}).get('parts',[])
+        candidate=next(iter(result.get('candidates',[])),{})
+        output=candidate.get('content',{}).get('parts',[])
         found=[p['inlineData'] for p in output if p.get('inlineData') and not p.get('thought')]
-        if not found: raise RuntimeError('Provider returned no image: '+' '.join(p.get('text','') for p in output)[:1500])
+        if not found:
+            detail=' '.join(p.get('text','') for p in output) or result.get('promptFeedback',{}).get('blockReason') or candidate.get('finishReason') or 'No image data was returned.'
+            raise RuntimeError('Gemini returned no image: '+detail[:1500])
         return base64.b64decode(found[-1]['data']),result.get('usageMetadata')
     raise ValueError('Choose an OpenAI-compatible or Gemini image provider')
 
@@ -69,6 +74,7 @@ class Generation:
         prompt=args.get('prompt','').strip()
         if not prompt: raise ValueError('Describe the image or change you want')
         config={**self.settings.values,**{k:v for k,v in args.items() if k in ('provider','model','quality','imageSize','aspectRatio')}}
+        if 'provider' in args and 'model' not in args:config['model']=self.settings.model_for(args['provider'])
         key=self.settings.key(config['provider'])
         if not key: raise ValueError('Configure your image provider in Settings first')
         job_id=str(uuid.uuid4()); folder=self.root/job_id; folder.mkdir()

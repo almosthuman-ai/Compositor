@@ -108,6 +108,9 @@ class Workspace(QObject):
             self.view.update(a); self.changed.emit(); return self.view
         if action=='settings':
             allowed={'provider','model','quality','imageSize','aspectRatio','studio_url','openai_url','gemini_url','codex_path','generationRoute','chat_model','chat_working_directory','artwork_directory'}
+            if 'provider' in a:
+                if a['provider'] not in ('openai','gemini'):raise ValueError('Choose an image provider')
+                if 'model' not in a:a={**a,'model':self.settings.model_for(a['provider'])}
             if 'generationRoute' in a and a['generationRoute'] not in ('api','chatgpt'): raise ValueError('Choose API provider or ChatGPT subscription')
             reconnect='chat_working_directory' in a and a['chat_working_directory']!=self.settings.values.get('chat_working_directory','')
             chat=getattr(self.window,'chat',None)
@@ -128,7 +131,10 @@ class Workspace(QObject):
                 if folder!=self.settings.values.get('artwork_directory',''):
                     remembered=self.settings.values.get('file_dialog_directories',{})
                     for purpose in ('save','export'): remembered.pop(purpose,None)
+            models=self.settings.values.setdefault('provider_models',{})
+            models[self.settings.values['provider']]=self.settings.values['model']
             self.settings.values.update(a)
+            models[self.settings.values['provider']]=self.settings.values['model']
             self.settings.save(); self.changed.emit()
             if reconnect and chat: self.window.reconnect_chat()
             return self.settings.public()
