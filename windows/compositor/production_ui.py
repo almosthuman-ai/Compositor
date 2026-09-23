@@ -153,8 +153,11 @@ class ProductionPanel(QWidget):
         project=self.project()
         if not project or not self.save_all_text(): return
         path=self.ws.projects.files.get(project['id'],{}).get('path')
-        if not path or save_as: path,_=QFileDialog.getSaveFileName(self,'Save project',path or project['title']+'.compbook','Compositor project (*.compbook)')
-        if path: return self.call('save',{'path':path,'projectId':project['id']})
+        choosing=not path or save_as
+        if choosing: path,_=QFileDialog.getSaveFileName(self,'Save project',path or self.ws.settings.file_dialog_path('save',project['title']+'.compbook'),'Compositor project (*.compbook)')
+        result=self.call('save',{'path':path,'projectId':project['id']}) if path else None
+        if result and choosing:self.ws.settings.remember_file_dialog('save',path)
+        return result
     def add_page(self):
         if self.project(): self.call('add_page')
     def reorder(self,delta):
@@ -194,8 +197,9 @@ class ProductionPanel(QWidget):
     def export(self):
         project=self.project()
         if not project or not self.save_all_text(): return
-        path,_=QFileDialog.getSaveFileName(self,'Export reading copy',project['title']+'.html','Portable reading copy (*.html);;PDF (*.pdf)')
-        if path: self.call('export',{'path':path,'projectId':project['id']})
+        source=self.ws.projects.files.get(project['id'],{}).get('path')
+        path,_=QFileDialog.getSaveFileName(self,'Export reading copy',self.ws.settings.file_dialog_path('export',project['title']+'.html',source),'Portable reading copy (*.html);;PDF (*.pdf)')
+        if path and self.call('export',{'path':path,'projectId':project['id']}):self.ws.settings.remember_file_dialog('export',path)
     def present(self,project=None,two_panels=False):
         project=project if isinstance(project,dict) else self.project()
         if project:

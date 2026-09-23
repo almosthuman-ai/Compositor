@@ -362,12 +362,13 @@ class GlitchDialog(QDialog):
         if active:self.engine.dispatch({'operation':'cancel','jobId':active})
 
     def export_loop(self,extension):
-        path,_=QFileDialog.getSaveFileName(self,'Export Glitch Temple loop','',f'{extension.upper()} (*.{extension})')
+        path,_=QFileDialog.getSaveFileName(self,'Export Glitch Temple loop',self.ws.settings.file_dialog_path('export',self.document.title+'.'+extension,self.document.path),f'{extension.upper()} (*.{extension})')
         if not path:return
         if not Path(path).suffix:path+='.'+extension
         try:
             job=self.engine.dispatch({'operation':'export','documentId':self.document.id,'layerId':self.layer_id,'path':path,
                                       'frames':self.recipe['loopFrames'],'fps':self.recipe['loopFps'],**self.export_options})
+            self.ws.settings.remember_file_dialog('export',path)
             self.loop_id=job['id'];self.refresh_job()
         except Exception as error:self.status.setText(str(error))
 

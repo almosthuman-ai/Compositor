@@ -1,6 +1,6 @@
 """Per-user public configuration; no dependency on a developer's workspace."""
 from pathlib import Path
-import json, os, secrets
+import json, os, re, secrets
 
 def data_root():
     return Path(os.environ.get('COMPOSITOR_DATA',str(Path(os.environ.get('LOCALAPPDATA',Path.home()/'.local/share'))/'Compositor')))
@@ -24,6 +24,31 @@ class Settings:
         self.token=token_path.read_text(encoding='utf-8').strip()
 
     def save(self): atomic_json(self.path,self.values)
+
+    def artwork_directory(self,source_path=None):
+        """Choose a visible initial location, independent of process working directory."""
+        configured=self.values.get('artwork_directory')
+        if configured and Path(configured).is_dir(): return Path(configured).resolve()
+        if source_path:
+            folder=Path(source_path).resolve().parent
+            private=[self.root.resolve()]+[Path(os.environ[key]).resolve() for key in ('LOCALAPPDATA','APPDATA') if os.environ.get(key)]
+            if folder.is_dir() and not any(folder.is_relative_to(root) for root in private) and not any(part.startswith('.') for part in folder.parts):
+                return folder
+        from PySide6.QtCore import QStandardPaths
+        for location in (QStandardPaths.StandardLocation.PicturesLocation,QStandardPaths.StandardLocation.DocumentsLocation):
+            value=QStandardPaths.writableLocation(location)
+            if value and Path(value).is_dir(): return Path(value).resolve()
+        return Path.home()
+
+    def file_dialog_path(self,purpose,name='',source_path=None):
+        remembered=self.values.get('file_dialog_directories',{}).get(purpose)
+        folder=Path(remembered) if remembered and Path(remembered).is_dir() else self.artwork_directory(source_path)
+        name=re.sub(r'[<>:"/\\|?*\x00-\x1f]','_',name).rstrip(' .')
+        return str(folder.resolve()/name) if name else str(folder.resolve())
+
+    def remember_file_dialog(self,purpose,path):
+        self.values.setdefault('file_dialog_directories',{})[purpose]=str(Path(path).resolve().parent)
+        self.save()
 
     def key(self,provider):
         env='OPENAI_API_KEY' if provider=='openai' else 'GEMINI_API_KEY'

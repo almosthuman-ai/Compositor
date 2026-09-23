@@ -120,6 +120,8 @@ Owen & Vic Studio can be connected through its local service URL in Settings. Ex
 
 ## Recovery and local data
 
+Save and Export remember the folders you choose, including after a restart. In Settings, **Artwork folder** sets their starting location and resets those remembered choices. Without a configured folder, export starts beside the saved document or in your Windows Pictures folder. Internal recovery and AppData folders are excluded from these defaults. Exports made by an AI tool do not change your file-dialog preferences.
+
 Settings, recovery snapshots, generated candidates and chat history live in `%LOCALAPPDATA%/Compositor`. `COMPOSITOR_DATA` selects an alternate store for testing or a separate installation. Unsaved documents reopen from recovery; an explicit Save creates your chosen project file. Failed or interrupted requests remain visible in Generate and are never retried automatically.
 
 The window's size, position and open panels return when you reopen the app. Compositor adjusts the restored window to the available screen if your display arrangement changes.

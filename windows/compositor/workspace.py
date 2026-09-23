@@ -107,7 +107,7 @@ class Workspace(QObject):
         if action=='view':
             self.view.update(a); self.changed.emit(); return self.view
         if action=='settings':
-            allowed={'provider','model','quality','imageSize','aspectRatio','studio_url','openai_url','gemini_url','codex_path','generationRoute','chat_model','chat_working_directory'}
+            allowed={'provider','model','quality','imageSize','aspectRatio','studio_url','openai_url','gemini_url','codex_path','generationRoute','chat_model','chat_working_directory','artwork_directory'}
             if 'generationRoute' in a and a['generationRoute'] not in ('api','chatgpt'): raise ValueError('Choose API provider or ChatGPT subscription')
             reconnect='chat_working_directory' in a and a['chat_working_directory']!=self.settings.values.get('chat_working_directory','')
             chat=getattr(self.window,'chat',None)
@@ -118,6 +118,16 @@ class Workspace(QObject):
                 folder=Path(a['chat_working_directory']).expanduser().resolve(); folder.mkdir(parents=True,exist_ok=True)
                 if not folder.is_dir(): raise ValueError('Choose a folder for ChatGPT files')
                 a={**a,'chat_working_directory':str(folder)}
+            if 'artwork_directory' in a:
+                folder=a['artwork_directory'].strip()
+                if folder:
+                    folder=Path(folder).expanduser().resolve()
+                    if not folder.is_dir(): raise ValueError('Choose an existing artwork folder')
+                    folder=str(folder)
+                a={**a,'artwork_directory':folder}
+                if folder!=self.settings.values.get('artwork_directory',''):
+                    remembered=self.settings.values.get('file_dialog_directories',{})
+                    for purpose in ('save','export'): remembered.pop(purpose,None)
             self.settings.values.update(a)
             self.settings.save(); self.changed.emit()
             if reconnect and chat: self.window.reconnect_chat()

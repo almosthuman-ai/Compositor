@@ -695,17 +695,20 @@ class Editor(QMainWindow):
         if linked:
             self.ws.projects.active=linked[0]['id']; self.production.refresh(); return self.production.save()
         d=self.ws.document(); path=d.path
-        if as_copy or not path: path,_=QFileDialog.getSaveFileName(self,'Save layered document',d.title+'.compwin','Compositor document (*.compwin);;OpenRaster (*.ora)')
-        return self.run('save',{'path':path,'documentId':d.id}) if path else None
+        choosing=as_copy or not path
+        if choosing: path,_=QFileDialog.getSaveFileName(self,'Save layered document',path or self.ws.settings.file_dialog_path('save',d.title+'.compwin'),'Compositor document (*.compwin);;OpenRaster (*.ora)')
+        result=self.run('save',{'path':path,'documentId':d.id}) if path else None
+        if result and choosing:self.ws.settings.remember_file_dialog('save',path)
+        return result
     def export(self):
         if not self.ws.active: return
-        d=self.ws.document(); path,_=QFileDialog.getSaveFileName(self,'Export image',d.title+'.png','PNG (*.png);;JPEG (*.jpg);;WebP (*.webp);;TIFF (*.tif)')
+        d=self.ws.document(); path,_=QFileDialog.getSaveFileName(self,'Export image',self.ws.settings.file_dialog_path('export',d.title+'.png',d.path),'PNG (*.png);;JPEG (*.jpg);;WebP (*.webp);;TIFF (*.tif)')
         if path:
             scale=1
             if d.pixel_art:
                 scale,ok=QInputDialog.getInt(self,'Export pixel art','Scale (1 = actual pixels)',1,1,64)
                 if not ok: return
-            self.run('export',{'path':path,'documentId':d.id,'scale':scale})
+            if self.run('export',{'path':path,'documentId':d.id,'scale':scale}):self.ws.settings.remember_file_dialog('export',path)
     def size_dialog(self,operation):
         d=self.ws.document(); defaults={'width':d.width,'height':d.height}
         if operation=='image_size': defaults['resampling']=['nearest','smooth'] if d.pixel_art else ['smooth','nearest']
@@ -826,6 +829,13 @@ class Editor(QMainWindow):
 
     def settings_dialog(self):
         s=self.ws.settings; dialog=QDialog(self); dialog.setWindowTitle('Settings'); form=QFormLayout(dialog)
+        artwork=QLineEdit(s.values.get('artwork_directory','')); artwork.setPlaceholderText(str(s.artwork_directory()))
+        artwork_row=QHBoxLayout(); artwork_row.addWidget(artwork); artwork_browse=QPushButton('Browse…'); artwork_row.addWidget(artwork_browse); form.addRow('Artwork folder',artwork_row)
+        def browse_artwork():
+            path=QFileDialog.getExistingDirectory(dialog,'Artwork folder',artwork.text() or str(s.artwork_directory()))
+            if path:artwork.setText(path)
+        artwork_browse.clicked.connect(browse_artwork)
+        artwork_note=QLabel('Save and Export start here until you choose another folder. Your last choices are remembered.'); artwork_note.setWordWrap(True); form.addRow(artwork_note)
         provider=QComboBox(); provider.addItems(['openai','gemini']); provider.setCurrentText(s.values['provider']); form.addRow('Image provider',provider)
         model=QLineEdit(s.values['model']); form.addRow('Image model',model)
         key=QLineEdit(); key.setEchoMode(QLineEdit.EchoMode.Password); key.setPlaceholderText('Leave blank to keep the saved key'); form.addRow('API key',key)
@@ -845,7 +855,7 @@ class Editor(QMainWindow):
         if dialog.exec()==QDialog.DialogCode.Accepted:
             try:
                 if key.text(): s.set_key(provider.currentText(),key.text())
-                self.run('settings',{'provider':provider.currentText(),'model':model.text(),'openai_url':endpoint.text(),'studio_url':studio.text(),'chat_working_directory':working.text().strip()})
+                self.run('settings',{'provider':provider.currentText(),'model':model.text(),'openai_url':endpoint.text(),'studio_url':studio.text(),'chat_working_directory':working.text().strip(),'artwork_directory':artwork.text().strip()})
             except Exception as e: QMessageBox.warning(self,'Settings',str(e))
     def open_studio(self):
         url=self.ws.settings.values.get('studio_url')
