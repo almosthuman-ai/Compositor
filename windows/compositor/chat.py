@@ -115,8 +115,9 @@ class ChatSession(QObject):
     def send_message(self,text,generation=None,context=None):
         if self.busy or self.waiting_message: raise ValueError('Wait for the current ChatGPT request or stop it before sending another message')
         self.waiting_message={'text':text,'generation':copy.deepcopy(generation),'documentId':generation['documentId'] if generation else self.ws.active,
-            'sourceRevision':generation['sourceRevision'] if generation else self.ws.document().revision if self.ws.active else None}
-        if context: self.waiting_message.update({k:context[k] for k in ('documentId','sourceRevision')})
+            'sourceRevision':generation['sourceRevision'] if generation else self.ws.document().revision if self.ws.active else None,
+            'sourceStateId':generation.get('sourceStateId') if generation else self.ws.document().state_id if self.ws.active else None}
+        if context: self.waiting_message.update({k:context.get(k) for k in ('documentId','sourceRevision','sourceStateId')})
         self.request_started_at=time.monotonic()
         self.generation_waiting=bool(generation)
         return self.flush_message()
@@ -128,7 +129,7 @@ class ChatSession(QObject):
             self.login(); return 'awaiting_signin'
         request=self.waiting_message; self.waiting_message=None; self.generation_waiting=False
         self.busy=True; self.stop_requested=False; self.status.emit('Starting…'); self.requested_generation=request['generation']
-        self.active_document=request['documentId']; self.source_revision=request['sourceRevision']; text=request['text']
+        self.active_document=request['documentId']; self.source_revision=request['sourceRevision']; self.source_state_id=request['sourceStateId']; text=request['text']
         self.record('user',text); self.message_sent.emit(text)
         if self.thread: self.start_turn(text); return 'requested'
         params={'cwd':str(self.work),'approvalPolicy':'on-request','sandbox':'workspace-write','developerInstructions':(Path(__file__).parent/'prompts/editor.md').read_text(encoding='utf-8')}
@@ -204,7 +205,9 @@ class ChatSession(QObject):
         elif method=='turn/completed':
             self.questions_cleared.emit()
             self.busy=False; self.turn=None; self.requested_generation=None; turn=p.get('turn',{}); error=turn.get('error'); self.status.emit(error.get('message') if error else ('Stopped' if turn.get('status')=='interrupted' else 'Ready'))
-        elif method=='error': self.status.emit(str(p.get('message') or p.get('error','ChatGPT error')))
+        elif method=='error':
+            error=p.get('message') or p.get('error','ChatGPT error')
+            self.status.emit(str(error.get('message','ChatGPT request failed') if isinstance(error,dict) else error))
 
     def native_image(self,item):
         if item.get('failure'):
@@ -226,6 +229,7 @@ class ChatSession(QObject):
             job={'id':job_id,'status':'complete','created':time.time(),'finished':time.time(),'documentId':source.get('documentId',self.active_document),'sourceRevision':source.get('sourceRevision',self.source_revision),'kind':'subscription','box':source.get('box'),'prompt':item.get('revisedPrompt') or 'ChatGPT image','config':{'provider':'chatgpt-subscription','model':self.model or 'account default'},'result':str(folder/'result.png'),'actualSize':actual,'nativeItemId':item.get('id'),'autoApply':False}
             job['creativeContext']=source.get('creativeContext',{}); job['userPrompt']=source.get('userPrompt',job['prompt']); job['requestedPrompt']=source.get('prompt'); job['references']=[]
             job['candidateSize']=list(candidate.size)
+            job['sourceStateId']=source.get('sourceStateId') if source else getattr(self,'source_state_id',None)
             job.update({key:source[key] for key in ('workingSize','workingContentBox','selectionBox','editArea','resampling') if key in source})
             if source.get('sourcePath'):
                 shutil.copyfile(source['sourcePath'],folder/'source.png'); job['inputs']=[str(folder/'source.png')]

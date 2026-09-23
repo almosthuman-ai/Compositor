@@ -33,10 +33,9 @@ class CandidateDialog(QDialog):
         try:
             im=self.document.render() if self.version.currentIndex() else self.editor.ws.generation.preview(self.document,self.job['id'],self.palette.currentData())
             self.item.setPixmap(pixmap(im)); self.scene.setSceneRect(self.item.boundingRect()); self.change_zoom()
-            stale=self.document.revision!=self.job['sourceRevision']; applied=self.job.get('applied',False)
-            self.apply_button.setEnabled(not stale and not applied)
-            if applied: message='This candidate has already been applied.'
-            elif stale: message='The artwork changed after generation. The candidate is preserved; place it manually or generate from the current artwork.'
+            error=self.editor.ws.generation.application_error(self.document,self.job['id'])
+            self.apply_button.setEnabled(error is None)
+            if error: message=error
             elif self.document.pixel_art: message=f'{self.document.width} × {self.document.height} pixel canvas with solid pixel edges. The original generated image is retained.'
             else: message='Preview includes the saved selection mask. Application adds an editable layer.'
             self.note.setText(message)

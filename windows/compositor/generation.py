@@ -80,7 +80,7 @@ class Generation:
             with Image.open(path) as im: im.convert('RGBA').save(folder/f'reference-{i}.png')
             images.append(str(folder/f'reference-{i}.png'))
         size=args.get('size','1024x1024')
-        job={**source,'id':job_id,'status':'queued','created':time.time(),'documentId':document.id,'sourceRevision':document.revision,'kind':kind,'prompt':prompt,'config':config,'size':size,'inputs':images,'references':copy.deepcopy(args.get('references',[])),'autoApply':bool(args.get('autoApply',False))}
+        job={**source,'id':job_id,'status':'queued','created':time.time(),'documentId':document.id,'sourceRevision':document.revision,'sourceStateId':document.state_id,'kind':kind,'prompt':prompt,'config':config,'size':size,'inputs':images,'references':copy.deepcopy(args.get('references',[])),'autoApply':bool(args.get('autoApply',False))}
         job['userPrompt']=args.get('userPrompt',prompt); job['creativeContext']=copy.deepcopy(args.get('creativeContext',{}))
         # Only non-secret provider configuration is retained. Credentials remain in the user's key store.
         self.jobs[job_id]=job; atomic_json(folder/'job.json',job)
@@ -102,6 +102,15 @@ class Generation:
         self.on_complete(job)
 
     def receive(self,job): self.jobs[job['id']]=job
+
+    def application_error(self,document,job_id):
+        job=self.jobs[job_id]
+        if job['status']!='complete': return 'The image is not complete.'
+        if job.get('applied'): return 'This candidate has already been applied; use Undo or duplicate its layer.'
+        if job['documentId']!=document.id: return 'This candidate belongs to another document.'
+        if not job.get('sourceStateId'): return 'This older candidate has no saved source identity. Preview it, then use Place as layer to position it manually.'
+        if job['sourceStateId']!=document.state_id: return 'The artwork changed after generation. The candidate is preserved; place it manually or generate from the current artwork.'
+        return None
 
     def candidate_layer(self,document,job_id,palette_mode='document'):
         """The same logical pixels are used by inspection and application."""
@@ -129,7 +138,7 @@ class Generation:
                 im,_=convert(im,{'width':im.width,'height':im.height,'palette':palette,'sampling':'nearest'})
             else: im.putalpha(im.getchannel('A').point(lambda value:255 if value>=128 else 0))
             if mask is not None: mask=mask.point(lambda value:255 if value>=128 else 0)
-        return Layer(name=job.get('userPrompt',job['prompt'])[:48],image=im,mask=mask,x=x,y=y,resampling=method,provenance={'generationId':job_id,'provider':job['config']['provider'],'model':job['config']['model'],'prompt':job['prompt'],'creativeContext':job.get('creativeContext',{}),'sourceRevision':job['sourceRevision'],'pixelPalette':palette_mode if document.pixel_art else None})
+        return Layer(name=job.get('userPrompt',job['prompt'])[:48],image=im,mask=mask,x=x,y=y,resampling=method,provenance={'generationId':job_id,'provider':job['config']['provider'],'model':job['config']['model'],'prompt':job['prompt'],'creativeContext':job.get('creativeContext',{}),'sourceRevision':job['sourceRevision'],'sourceStateId':job.get('sourceStateId'),'pixelPalette':palette_mode if document.pixel_art else None})
 
     def preview(self,document,job_id,palette_mode='document'):
         from .pixels import placed
@@ -137,12 +146,9 @@ class Generation:
         return Image.alpha_composite(document.render(),placed(layer,(document.width,document.height)))
 
     def apply(self,document,job_id,palette_mode='document'):
-        from .document import Layer
         job=self.jobs[job_id]
-        if job['status']!='complete': raise ValueError('The image is not complete')
-        if job.get('applied'): raise ValueError('This candidate has already been applied; use Undo or duplicate its layer')
-        if job['documentId']!=document.id: raise ValueError('This candidate belongs to another document')
-        if job['sourceRevision']!=document.revision: raise ValueError('The document changed after generation. The candidate remains available; import it as a layer to place it yourself.')
+        error=self.application_error(document,job_id)
+        if error: raise ValueError(error)
         before=document.snapshot()
         try:
             document.add(self.candidate_layer(document,job_id,palette_mode))

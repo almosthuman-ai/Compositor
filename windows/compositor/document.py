@@ -1,7 +1,7 @@
 """Immutable pixel references with transactional edits, editable layers and recoverable history."""
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-import copy, io, json, math, os, uuid, zipfile
+import copy, hashlib, io, json, math, os, uuid, zipfile
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 from . import pixels
@@ -72,7 +72,7 @@ class Document:
     def info(self):
         box=self.selection.getbbox() if self.selection is not None else None
         return {'id':self.id,'title':self.title,'width':self.width,'height':self.height,'path':self.path,'revision':self.revision,
-                'dirty':self.dirty,'activeLayer':self.active,'layers':[l.info() for l in self.layers],
+                'stateId':self.state_id,'dirty':self.dirty,'activeLayer':self.active,'layers':[l.info() for l in self.layers],
                 'selection':list(box) if box else None,'guides':self.guides,'studio':self.studio,'pixelArt':self.pixel_art,
                 'undo':[h[0] for h in self.history],'redo':[h[0] for h in self.future]}
 
@@ -385,7 +385,7 @@ class Document:
         path=Path(path).resolve(); path.parent.mkdir(parents=True,exist_ok=True)
         if path.suffix.lower() not in ('.compwin','.ora'): raise ValueError('Save layered documents as .compwin or .ora; use Export for flat images')
         temp=path.with_name(path.name+'.'+uid()+'.tmp')
-        manifest={'format':'com.compositor.windows','version':1,'id':self.id,'title':self.title,'width':self.width,'height':self.height,'active':self.active,'guides':self.guides,'studio':self.studio,'pixelArt':self.pixel_art,'layers':[]}
+        manifest={'format':'com.compositor.windows','version':1,'id':self.id,'stateId':self.state_id,'title':self.title,'width':self.width,'height':self.height,'active':self.active,'guides':self.guides,'studio':self.studio,'pixelArt':self.pixel_art,'layers':[]}
         try:
             with zipfile.ZipFile(temp,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=2) as archive:
                 if path.suffix.lower()=='.ora': archive.writestr('mimetype','image/openraster',compress_type=zipfile.ZIP_STORED)
@@ -442,11 +442,23 @@ class Document:
             if m.get('format')!='com.compositor.windows' or m.get('version')!=1: raise ValueError('Unsupported document format/version')
             d=cls(m['width'],m['height'],m['title']); d.id=m['id']; d.active=m.get('active'); d.guides=m.get('guides',[]); d.studio=m.get('studio',{})
             d.pixel_art=m.get('pixelArt',{})
+            legacy_digest=None
+            if isinstance(m.get('stateId'),str) and m['stateId']: d.state_id=m['stateId']
+            else:
+                # Old originals and recovery files may differ in ZIP timestamps
+                # or selected layer. Neither changes the artwork being edited.
+                legacy_digest=hashlib.sha256(json.dumps({k:v for k,v in m.items() if k not in ('active','stateId')},sort_keys=True,separators=(',',':')).encode())
             for r in m['layers']:
                 for key in ('image','mask'):
-                    if r.get(key): r[key]=Image.open(io.BytesIO(archive.read(r[key]))).convert('L' if key=='mask' else 'RGBA')
+                    if r.get(key):
+                        r[key]=Image.open(io.BytesIO(archive.read(r[key]))).convert('L' if key=='mask' else 'RGBA')
+                        if legacy_digest:
+                            legacy_digest.update(json.dumps([r[key].mode,r[key].size]).encode()); legacy_digest.update(r[key].tobytes())
                 d.layers.append(Layer(**r))
-            if 'selection.png' in archive.namelist(): d.selection=Image.open(io.BytesIO(archive.read('selection.png'))).convert('L')
+            if 'selection.png' in archive.namelist():
+                d.selection=Image.open(io.BytesIO(archive.read('selection.png'))).convert('L')
+                if legacy_digest: legacy_digest.update(b'selection'); legacy_digest.update(d.selection.tobytes())
+            if legacy_digest: d.state_id='legacy-'+legacy_digest.hexdigest()
             d._validate(); d.path=str(path); d.saved_revision=0; return d
 
     @classmethod

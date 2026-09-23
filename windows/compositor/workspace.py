@@ -171,7 +171,7 @@ class Workspace(QObject):
                 with Image.open(ref['path']) as image: image.convert('RGBA').save(target)
                 references.append({**ref,'path':str(target)})
             source_path=source['sourcePath']
-            self.prepared_generation={**source,'documentId':d.id,'sourceRevision':d.revision,'kind':kind,'created':time.time(),'prompt':request['prompt'],'userPrompt':request['userPrompt'],'creativeContext':request['creativeContext'],'references':references,'inputs':([source_path] if source_path else [])+[r['path'] for r in references]}
+            self.prepared_generation={**source,'documentId':d.id,'sourceRevision':d.revision,'sourceStateId':d.state_id,'kind':kind,'created':time.time(),'prompt':request['prompt'],'userPrompt':request['userPrompt'],'creativeContext':request['creativeContext'],'references':references,'inputs':([source_path] if source_path else [])+[r['path'] for r in references]}
             self.prepared_generation['requestedSize']='x'.join(map(str,source['workingSize'])) if source.get('workingSize') else a.get('size')
             atomic_json(folder/'source.json',self.prepared_generation); return self.prepared_generation
         if action=='generate':

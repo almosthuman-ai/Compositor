@@ -1001,7 +1001,7 @@ class Editor(QMainWindow):
             self.chat_status.setText('Your message will be sent after ChatGPT setup'); return
         try: self.ensure_chat().send_message(text)
         except RuntimeError:
-            self.setup_message={'text':text,'documentId':self.ws.active,'sourceRevision':self.ws.document().revision if self.ws.active else None}; self.setup_login=False; self.install_chat_runtime()
+            self.setup_message={'text':text,'documentId':self.ws.active,'sourceRevision':self.ws.document().revision if self.ws.active else None,'sourceStateId':self.ws.document().state_id if self.ws.active else None}; self.setup_login=False; self.install_chat_runtime()
         except Exception as e: self.chat_status.setText(str(e))
     def chat_stop(self):
         self.setup_message=None; self.setup_login=False
