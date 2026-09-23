@@ -82,7 +82,7 @@ A project keeps its own style instructions and copied reference images. Editing 
 
 Projects save locally as you work. **Save** creates a portable `.compbook` containing all pages, editable layers, prose and references. Opening a portable copy creates a separate project, preserving any version already open. Page text drafts survive refreshes, page switches and restarts.
 
-Export a self-contained HTML reading copy or a PDF with artwork and prose. **Present** opens a full-screen view with page navigation and an optional two-panel comic layout. Human navigation and MCP selection use the same page. These features work without a connected Studio service.
+Export a self-contained HTML reading copy or a PDF with artwork and prose. PDF pages keep the artwork's proportions, with any additional writing beneath the image. Lettering composed on the canvas stays in place. **Present** opens a full-screen view with page navigation and an optional two-panel comic layout. Human navigation and MCP selection use the same page. These features work without a connected Studio service.
 
 ## Connect an existing studio
 
@@ -92,7 +92,7 @@ Owen & Vic Studio can be connected through its local service URL in Settings. Ex
 
 Settings, recovery snapshots, generated candidates and chat history live in `%LOCALAPPDATA%/Compositor`. `COMPOSITOR_DATA` selects an alternate store for testing or a separate installation. Unsaved documents reopen from recovery; an explicit Save creates your chosen project file. Failed or interrupted requests remain visible in Generate and are never retried automatically.
 
-The window's size, position and open panels return when you reopen the app. Qt adjusts the restored window to the available screen if your display arrangement changes.
+The window's size, position and open panels return when you reopen the app. Compositor adjusts the restored window to the available screen if your display arrangement changes.
 
 ## Development
 

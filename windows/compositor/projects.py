@@ -1,6 +1,6 @@
 """Portable production projects over the editor's canonical layered documents."""
 from pathlib import Path
-import copy, html, io, json, os, tempfile, uuid, zipfile
+import copy, json, os, tempfile, uuid, zipfile
 from PIL import Image, ImageOps
 from .document import Document
 from .settings import atomic_json
@@ -242,22 +242,11 @@ class Projects:
     def export(self,project,path):
         target=Path(path).resolve(); target.parent.mkdir(parents=True,exist_ok=True)
         if target.suffix.lower() not in ('.html','.pdf'): raise ValueError('Export a self-contained .html reading copy or .pdf')
-        import base64
-        pages=[]
-        for index,page in enumerate(project['pages']):
-            im=self.document(project,page).render(); data=io.BytesIO(); im.save(data,'PNG')
-            paragraphs=''.join('<p>'+html.escape(p)+'</p>' for p in page['text'].split('\n') if p.strip())
-            pages.append('<div class="page"'+(' style="page-break-before:always"' if index else '')+'><h2>'+html.escape(page['title'])+'</h2><img width="640" alt="'+html.escape(page['title'],quote=True)+'" src="data:image/png;base64,'+base64.b64encode(data.getvalue()).decode()+'">'+paragraphs+'</div>')
-        body='<!doctype html><html><head><meta charset="utf-8"><title>'+html.escape(project['title'])+'</title><style>body{font:20px/1.6 Georgia,serif;max-width:900px;margin:40px auto;padding:0 24px;color:#242424}.page{margin-bottom:64px}img{max-width:100%;height:auto}h2{font:600 22px sans-serif}p{white-space:pre-wrap}</style></head><body><h1>'+html.escape(project['title'])+'</h1>'+''.join(pages)+'</body></html>'
+        from .reading import export_reading
+        pages=((page,self.document(project,page).render()) for page in project['pages'])
         temp=target.with_name(target.stem+'.'+str(uuid.uuid4())+target.suffix)
         try:
-            if target.suffix.lower()=='.html': temp.write_text(body,encoding='utf-8')
-            else:
-                from PySide6.QtGui import QTextDocument, QPageSize
-                from PySide6.QtPrintSupport import QPrinter
-                printer=QPrinter(QPrinter.PrinterMode.HighResolution); printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat); printer.setOutputFileName(str(temp)); printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-                text=QTextDocument(); text.setHtml(body); text.print_(printer)
-                if not temp.exists() or temp.stat().st_size<100: raise RuntimeError('PDF export produced no document')
+            export_reading(project,pages,temp)
             os.replace(temp,target)
         finally:
             if temp.exists(): temp.unlink()
