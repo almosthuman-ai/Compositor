@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt, QRectF, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut, QPainter
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QPushButton,QComboBox,QListWidget,QListWidgetItem,
     QLineEdit,QPlainTextEdit,QLabel,QTextBrowser,QFileDialog,QInputDialog,QDialog,QCheckBox,QGraphicsView,QGraphicsScene,QMessageBox)
+from .chrome import icon_button, EditorComboBox as QComboBox
 
 
 class ProductionPanel(QWidget):
@@ -15,18 +16,20 @@ class ProductionPanel(QWidget):
             try: self.drafts={tuple(row['key']):row['value'] for row in json.loads(self.draft_path.read_text(encoding='utf-8'))}
             except (ValueError,KeyError): pass
         self.draft_timer=QTimer(self); self.draft_timer.setSingleShot(True); self.draft_timer.setInterval(500); self.draft_timer.timeout.connect(self.save_drafts)
-        layout=QVBoxLayout(self); row=QHBoxLayout()
+        root=QVBoxLayout(self); root.setContentsMargins(10,10,10,10); row=QHBoxLayout()
         for title,fn in [('New project',self.create),('Open…',self.open),('Save…',self.save)]:
             button=QPushButton(title); button.clicked.connect(fn); row.addWidget(button)
-        layout.addLayout(row); self.projects=QComboBox(); self.projects.currentIndexChanged.connect(self.select_project); layout.addWidget(self.projects)
-        self.pages=QListWidget(); self.pages.setMaximumHeight(240); self.pages.itemClicked.connect(self.select_page); layout.addWidget(self.pages)
+        root.addLayout(row); self.empty=QLabel('Create an artwork, comic or book.\n\nKeep its pages, references and writing together.'); self.empty.setWordWrap(True); self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter); root.addWidget(self.empty,1)
+        self.body=QWidget(); root.addWidget(self.body,1); layout=QVBoxLayout(self.body); layout.setContentsMargins(0,0,0,0); layout.setSpacing(8)
+        self.projects=QComboBox(); self.projects.currentIndexChanged.connect(self.select_project); layout.addWidget(self.projects)
+        self.pages=QListWidget(); self.pages.setMinimumHeight(80); self.pages.setMaximumHeight(220); self.pages.itemClicked.connect(self.select_page); layout.addWidget(self.pages,1)
         row=QHBoxLayout()
-        for title,fn in [('+ Page',self.add_page),('↑',lambda:self.reorder(-1)),('↓',lambda:self.reorder(1)),('Remove',self.remove_page)]:
-            button=QPushButton(title); button.clicked.connect(fn); row.addWidget(button)
+        for name,title,fn in [('plus','Add page',self.add_page),('up','Move page earlier',lambda:self.reorder(-1)),('down','Move page later',lambda:self.reorder(1)),('delete','Remove page',self.remove_page)]: row.addWidget(icon_button(name,title,fn))
+        row.addStretch()
         layout.addLayout(row)
         self.title=QLineEdit(); self.title.setPlaceholderText('Page title'); layout.addWidget(self.title)
-        self.text=QPlainTextEdit(); self.text.setPlaceholderText('Page prose for reading and PDF exports'); self.text.setMaximumHeight(130); layout.addWidget(self.text)
-        self.prompt=QPlainTextEdit(); self.prompt.setPlaceholderText('Art direction for this page'); self.prompt.setMaximumHeight(100); layout.addWidget(self.prompt)
+        self.text=QPlainTextEdit(); self.text.setPlaceholderText('Page prose for reading and PDF exports'); self.text.setFixedHeight(110); layout.addWidget(self.text)
+        self.prompt=QPlainTextEdit(); self.prompt.setPlaceholderText('Art direction for this page'); self.prompt.setFixedHeight(90); layout.addWidget(self.prompt)
         for field in (self.title,self.text,self.prompt): field.textChanged.connect(self.remember_draft)
         self.draft_status=QLabel(); layout.addWidget(self.draft_status)
         row=QHBoxLayout()
@@ -52,7 +55,7 @@ class ProductionPanel(QWidget):
             self.projects.blockSignals(True); self.projects.clear()
             for project in self.ws.projects.items.values(): self.projects.addItem(project['title'],project['id'])
             self.projects.setCurrentIndex(max(0,self.projects.findData(self.ws.projects.active))); self.projects.blockSignals(False)
-            project=self.project(); self.pages.clear()
+            project=self.project(); self.pages.clear(); self.body.setVisible(project is not None); self.empty.setVisible(project is None)
             if project:
                 for i,page in enumerate(project['pages']):
                     item=QListWidgetItem(f"{i+1}. {page['title']}"); item.setData(Qt.ItemDataRole.UserRole,page['id']); self.pages.addItem(item)

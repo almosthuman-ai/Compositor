@@ -6,21 +6,59 @@ from PySide6.QtGui import QAction, QActionGroup, QColor, QPainter, QPen, QBrush,
 from PySide6.QtWidgets import (QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QSplitter,QTabWidget,QTabBar,QDockWidget,QToolBar,QLabel,QPushButton,QToolButton,QComboBox,QDoubleSpinBox,QSpinBox,QSlider,QLineEdit,QPlainTextEdit,QTextBrowser,QListWidget,QListWidgetItem,QGraphicsView,QGraphicsScene,QGraphicsPixmapItem,QGraphicsPathItem,QFileDialog,QColorDialog,QInputDialog,QMessageBox,QDialog,QDialogButtonBox,QCheckBox,QScrollArea,QAbstractItemView)
 from PIL import Image
 from . import pixels
+from .chrome import icon, icon_button, Ruler, ColorPanel, LayerDelegate, configure_application
+from .chrome import EditorComboBox as QComboBox
+from PySide6.QtWidgets import QGridLayout, QSizePolicy, QFrame
 
 STYLE='''
-QMainWindow,QDialog { background:#20232a; color:#e7eaf0; }
-QWidget { font-family:"Segoe UI"; font-size:13px; color:#e7eaf0; }
-QMenuBar,QMenu,QToolBar,QDockWidget,QTabWidget::pane { background:#292d36; }
-QMenu::item { padding:8px 24px; min-height:20px; } QMenu::item:selected { background:#465b78; }
-QPushButton,QToolButton,QComboBox,QSpinBox,QDoubleSpinBox,QLineEdit { min-height:32px; border:1px solid #48505e; border-radius:4px; padding:0 8px; background:#323844; }
-QPushButton:hover,QToolButton:hover { background:#445166; } QToolButton:checked { background:#436284; border-color:#83b7ee; }
-QPlainTextEdit,QTextBrowser,QListWidget { background:#222630; border:1px solid #424956; padding:4px; }
-QListWidget::item { min-height:34px; padding:3px; } QListWidget::item:selected { background:#405b7a; }
-QTabBar::tab { min-height:32px; padding:0 15px; background:#2b303b; } QTabBar::tab:selected { background:#435b77; }
+QMainWindow,QDialog { background:#303030; color:#dedede; }
+QWidget { font-family:"Segoe UI"; font-size:12px; color:#dedede; }
+QToolTip { background:#eee; color:#222; border:1px solid #888; padding:5px; }
+QMenuBar { background:#393939; border-bottom:1px solid #252525; }
+QMenuBar::item { padding:8px 9px; }
+QMenuBar::item:selected,QMenu::item:selected { background:#585858; }
+QMenu { background:#393939; border:1px solid #222; }
+QMenu::item { padding:0 28px; min-height:32px; }
+QMenu::separator { height:1px; background:#252525; margin:4px 8px; }
+QToolBar { background:#454545; border:0; border-bottom:1px solid #282828; spacing:4px; padding:3px; }
+QToolBar#toolRail { background:#3c3c3c; border-right:1px solid #282828; padding:3px; spacing:1px; }
+QToolBar::separator { background:#2c2c2c; width:1px; height:1px; margin:4px; }
+QPushButton,QComboBox,QSpinBox,QDoubleSpinBox,QLineEdit { min-height:30px; border:1px solid #2d2d2d; border-radius:2px; padding:0 7px; background:#3b3b3b; }
+QPushButton:hover,QComboBox:hover { background:#515151; border-color:#747474; }
+QPushButton:pressed { background:#292929; }
+QToolButton { min-width:30px; min-height:30px; padding:0; border:1px solid transparent; border-radius:2px; background:transparent; }
+QToolButton:hover { background:#565656; border-color:#626262; }
+QToolButton:checked { background:#242424; border-color:#727272; }
+QToolButton:disabled,QPushButton:disabled { color:#888; }
+QLineEdit:focus,QPlainTextEdit:focus { border-color:#8b8b8b; }
+QComboBox::drop-down { width:24px; border:0; }
+QComboBox QAbstractItemView { background:#393939; selection-background-color:#656565; min-height:32px; }
+QSpinBox::up-button,QDoubleSpinBox::up-button,QSpinBox::down-button,QDoubleSpinBox::down-button { width:0; }
+QPlainTextEdit,QTextBrowser { background:#353535; border:1px solid #282828; padding:7px; selection-background-color:#53697e; }
+QListWidget { background:#414141; border:0; outline:0; padding:0; }
+QListWidget::item { min-height:34px; padding:3px; border-bottom:1px solid #3b3b3b; }
+QListWidget::item:selected { background:#626262; }
+QTabWidget::pane { background:#454545; border:0; }
+QTabBar { background:#333; }
+QTabBar::tab { min-height:32px; padding:0 12px; background:#383838; border-right:1px solid #292929; }
+QTabBar::tab:selected { background:#4a4a4a; color:white; }
+QTabBar::tab:hover { background:#515151; }
 QTabBar::close-button { width:32px; height:32px; }
-QDockWidget::title { padding:8px; background:#292d36; } QCheckBox { min-height:32px; }
-QScrollBar:vertical { width:16px; } QScrollBar:horizontal { height:16px; }
-QStatusBar { background:#252b34; } QSplitter::handle { background:#151a21; width:5px; }
+QDockWidget { background:#454545; }
+QDockWidget::title { background:#383838; padding:8px 10px; }
+QCheckBox { min-height:32px; spacing:6px; }
+QCheckBox::indicator { width:16px; height:16px; }
+QCheckBox::indicator:unchecked { background:#353535; border:1px solid #767676; border-radius:2px; }
+QScrollBar:vertical { background:#303030; width:12px; margin:0; }
+QScrollBar:horizontal { background:#303030; height:12px; margin:0; }
+QScrollBar::handle { background:#5b5b5b; min-width:32px; min-height:32px; border:2px solid #303030; }
+QScrollBar::add-line,QScrollBar::sub-line { width:0; height:0; }
+QScrollBar::add-page,QScrollBar::sub-page { background:transparent; }
+QStatusBar { background:#393939; border-top:1px solid #292929; min-height:24px; }
+QStatusBar::item { border:0; } QStatusBar QLabel { color:#bdbdbd; padding:0 8px; }
+QSplitter::handle { background:#292929; width:4px; height:4px; }
+QWidget#inspector { background:#454545; }
+QLabel#sectionLabel { color:#c7c7c7; font-weight:600; padding:4px 0; }
 '''
 
 def pixmap(image):
@@ -32,10 +70,21 @@ class Canvas(QGraphicsView):
         self.overlay=QGraphicsPathItem(); self.overlay.setZValue(2); self.scene().addItem(self.overlay)
         pen=QPen(QColor('#8ac5ff'),1,Qt.PenStyle.DashLine); pen.setCosmetic(True); self.overlay.setPen(pen)
         tile=QPixmap(24,24); tile.fill(QColor('#747780')); p=QPainter(tile); p.fillRect(0,0,12,12,QColor('#999ca4')); p.fillRect(12,12,12,12,QColor('#999ca4')); p.end()
-        self.checker=QBrush(tile); self.setBackgroundBrush(QColor('#171b22')); self.setRenderHints(QPainter.RenderHint.Antialiasing|QPainter.RenderHint.SmoothPixmapTransform)
+        self.checker=QBrush(tile); self.setBackgroundBrush(QColor('#262626')); self.setFrameShape(QFrame.Shape.NoFrame); self.setRenderHints(QPainter.RenderHint.Antialiasing|QPainter.RenderHint.SmoothPixmapTransform)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse); self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setMouseTracking(True); self.setAcceptDrops(True); self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.points=[]; self.start=None; self.end=None; self.pan=False; self.space=False; self.document_id=None; self.clone_source=None; self.last_stroke=None; self.pressure=1
+        self.horizontalScrollBar().valueChanged.connect(self.update_view_chrome); self.verticalScrollBar().valueChanged.connect(self.update_view_chrome)
+
+    def update_view_chrome(self):
+        for ruler in getattr(self.window,'rulers',[]): ruler.update()
+        if hasattr(self.window,'zoom_label'): self.window.zoom_label.setText(f'{self.transform().m11()*100:.0f}%')
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event); self.update_view_chrome()
+
+    def resetTransform(self):
+        super().resetTransform(); self.update_view_chrome(); self.selection_overlay()
 
     def drawBackground(self,painter,rect):
         super().drawBackground(painter,rect)
@@ -50,7 +99,7 @@ class Canvas(QGraphicsView):
 
     def fit(self):
         if self.ws.active:
-            d=self.ws.document(); self.fitInView(QRectF(-24,-24,d.width+48,d.height+48),Qt.AspectRatioMode.KeepAspectRatio); self.window.zoom_label.setText(f'{self.transform().m11()*100:.0f}%')
+            d=self.ws.document(); self.fitInView(QRectF(-64,-64,d.width+128,d.height+128),Qt.AspectRatioMode.KeepAspectRatio); self.update_view_chrome(); self.selection_overlay()
 
     def selection_overlay(self):
         pen=QPen(QColor('#8ac5ff'),1,Qt.PenStyle.DashLine); pen.setCosmetic(True); self.overlay.setPen(pen)
@@ -65,7 +114,7 @@ class Canvas(QGraphicsView):
                     pts=contour[:,0,:]; path.moveTo(float(pts[0][0]),float(pts[0][1]))
                     for x,y in pts[1:]: path.lineTo(float(x),float(y))
                     path.closeSubpath()
-            if self.window.tool=='move' and d.active:
+            if self.window.tool=='move' and d.active and getattr(self.window,'show_transform',None) and self.window.show_transform.isChecked():
                 l=d.layer()
                 if l.kind not in ('group','adjustment'):
                     im=pixels.content(l); w,h=im.width*abs(l.sx),im.height*abs(l.sy); path.addRect(l.x,l.y,w,h)
@@ -78,7 +127,7 @@ class Canvas(QGraphicsView):
 
     def wheelEvent(self,event):
         factor=1.15 if event.angleDelta().y()>0 else 1/1.15; zoom=self.transform().m11()*factor
-        if .01<zoom<64: self.scale(factor,factor); self.window.zoom_label.setText(f'{zoom*100:.0f}%')
+        if .01<zoom<64: self.scale(factor,factor); self.update_view_chrome(); self.selection_overlay()
         event.accept()
 
     def keyPressEvent(self,event):
@@ -195,12 +244,20 @@ class Canvas(QGraphicsView):
 class Editor(QMainWindow):
     def __init__(self,ws):
         super().__init__(); self.ws=ws; ws.window=self; self.tool='move'; self.color='#efab70'; self.background_color='#ffffff'; self.refreshing=False; self.references=[]
-        self.setWindowTitle('Compositor'); self.resize(1500,960); self.setMinimumSize(960,640); self.setStyleSheet(STYLE)
+        configure_application(); self.menuBar().setFixedHeight(32)
+        app_icon=Path(__file__).parent/'assets/app-icon-256.png'
+        if not app_icon.exists(): app_icon=Path(__file__).resolve().parents[2]/'Compositor/Assets.xcassets/AppIcon.appiconset/app-icon-256.png'
+        self.setWindowIcon(QIcon(str(app_icon)))
+        self.setWindowTitle('Compositor'); self.resize(1600,1000); self.setMinimumSize(1000,720); self.setStyleSheet(STYLE)
         self.setDockOptions(QMainWindow.DockOption.AllowTabbedDocks|QMainWindow.DockOption.AllowNestedDocks)
-        self.zoom_label=QLabel('100%'); self.coords_label=QLabel(''); self.statusBar().addPermanentWidget(self.coords_label); self.statusBar().addPermanentWidget(self.zoom_label)
+        self.zoom_label=QLabel('100%'); self.coords_label=QLabel(''); self.document_label=QLabel(); self.statusBar().addWidget(self.zoom_label); self.statusBar().addWidget(self.document_label); self.statusBar().addPermanentWidget(self.coords_label)
         self.canvas=Canvas(self); self.tabs=QTabBar(); self.tabs.setExpanding(False); self.tabs.setTabsClosable(True); self.tabs.currentChanged.connect(self.activate_tab); self.tabs.tabCloseRequested.connect(self.close_tab)
-        central=QWidget(); layout=QVBoxLayout(central); layout.setContentsMargins(0,0,0,0); layout.setSpacing(0); layout.addWidget(self.tabs); layout.addWidget(self.canvas); self.setCentralWidget(central)
+        central=QWidget(); layout=QVBoxLayout(central); layout.setContentsMargins(0,0,0,0); layout.setSpacing(0); layout.addWidget(self.tabs)
+        frame=QWidget(); grid=QGridLayout(frame); grid.setContentsMargins(0,0,0,0); grid.setSpacing(0); self.rulers=[Ruler(self.canvas,True),Ruler(self.canvas,False)]
+        corner=QLabel(); corner.setFixedSize(22,22); corner.setStyleSheet('background:#383838;'); grid.addWidget(corner,0,0); grid.addWidget(self.rulers[0],0,1); grid.addWidget(self.rulers[1],1,0); grid.addWidget(self.canvas,1,1); layout.addWidget(frame,1); self.setCentralWidget(central)
         self.build_menus(); self.build_tools(); self.build_layers(); self.build_generation(); self.build_chat(); self.build_production()
+        for dock in (self.generation_dock,self.chat_dock,self.production_dock): dock.hide()
+        self.resizeDocks([self.layer_dock],[300],Qt.Orientation.Horizontal)
         ws.changed.connect(self.refresh); ws.message.connect(lambda text:self.statusBar().showMessage(text,15000)); self.refresh()
 
     def action(self,menu,title,callback,shortcut=None):
@@ -226,60 +283,95 @@ class Editor(QMainWindow):
         filters=self.menuBar().addMenu('F&ilters')
         for label,kind in [('Gaussian blur','gaussian_blur'),('Motion blur','motion_blur'),('Sharpen','sharpen'),('Noise','noise')]: self.action(filters,label+'…',lambda kind=kind:self.adjust_dialog(kind,False))
         view=self.menuBar().addMenu('&View'); self.action(view,'Fit canvas',self.canvas.fit,'Ctrl+0'); self.action(view,'Actual pixels',lambda:self.canvas.resetTransform(),'Ctrl+1'); self.action(view,'Add guide…',self.guide_dialog)
-        projects=self.menuBar().addMenu('&Projects'); self.action(projects,'Project library',lambda:self.production_dock.raise_()); self.action(projects,'New artwork, comic or book…',lambda:self.production.create()); self.action(projects,'Open project…',lambda:self.production.open()); projects.addSeparator(); self.action(projects,'Open connected studio',self.open_studio); self.action(projects,'Bring connected project image into editor…',self.pull_project); self.action(projects,'Return artwork to connected project',self.push_project)
+        projects=self.menuBar().addMenu('&Projects'); self.action(projects,'Project library',lambda:self.show_panel(self.production_dock)); self.action(projects,'New artwork, comic or book…',lambda:self.production.create()); self.action(projects,'Open project…',lambda:self.production.open()); projects.addSeparator(); self.action(projects,'Open connected studio',self.open_studio); self.action(projects,'Bring connected project image into editor…',self.pull_project); self.action(projects,'Return artwork to connected project',self.push_project)
         help_menu=self.menuBar().addMenu('&Help'); self.action(help_menu,'About Compositor',lambda:QMessageBox.information(self,'Compositor','Compositor for Windows\nBased on Robbie Tilton’s MIT-licensed Compositor.\nWindows edition by the Compositor contributors.\n\nSpace-drag to pan; wheel to zoom.\nAlt-click sets a clone source.\nShift adds to selections; Alt subtracts.\n\nSave .compwin for editable layers.'))
 
     def build_tools(self):
-        toolbar=QToolBar('Tools'); toolbar.setMovable(False); toolbar.setOrientation(Qt.Orientation.Vertical); self.addToolBar(Qt.ToolBarArea.LeftToolBarArea,toolbar); self.tool_actions={}; group=QActionGroup(self); group.setExclusive(True)
-        for label,key,shortcut in [('Move','move','V'),('Select','rectangle','M'),('Ellipse','ellipse',None),('Lasso','lasso','L'),('Wand','wand','W'),('Crop','crop','C'),('Brush','brush','B'),('Erase','erase','E'),('Heal','heal','J'),('Clone','clone','S'),('Blur','blur_brush',None),('Type','text','T'),('Shape','shape','U'),('Gradient','gradient','G'),('Pick','eyedropper','I'),('Hand','hand','H')]:
-            a=QAction(label,self); a.setCheckable(True); a.setToolTip(label+(f' ({shortcut})' if shortcut else '')); a.triggered.connect(lambda checked,key=key:self.set_tool(key)); group.addAction(a); toolbar.addAction(a); self.tool_actions[key]=a
+        toolbar=QToolBar('Tools'); toolbar.setObjectName('toolRail'); toolbar.setMovable(False); toolbar.setOrientation(Qt.Orientation.Vertical); toolbar.setIconSize(QSize(20,20)); toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly); self.addToolBar(Qt.ToolBarArea.LeftToolBarArea,toolbar); self.tool_actions={}; group=QActionGroup(self); group.setExclusive(True)
+        for label,key,shortcut in [('Move','move','V'),('Rectangular marquee','rectangle','M'),('Elliptical marquee','ellipse',None),('Lasso','lasso','L'),('Magic wand','wand','W'),('Crop','crop','C'),('Eyedropper','eyedropper','I'),('Healing brush','heal','J'),('Brush','brush','B'),('Clone stamp','clone','S'),('Eraser','erase','E'),('Gradient','gradient','G'),('Blur','blur_brush',None),('Type','text','T'),('Shape','shape','U'),('Hand','hand','H')]:
+            a=QAction(icon(key),label,self); a.setCheckable(True); a.setToolTip(label+(f' ({shortcut})' if shortcut else '')); a.triggered.connect(lambda checked,key=key:self.set_tool(key)); group.addAction(a); toolbar.addAction(a); self.tool_actions[key]=a
             if shortcut: a.setShortcut(shortcut)
-            toolbar.widgetForAction(a).setMinimumSize(64,34)
+            toolbar.widgetForAction(a).setFixedSize(34,32); toolbar.widgetForAction(a).setAccessibleName(label)
         self.tool_actions['move'].setChecked(True)
-        options=QToolBar('Tool options'); options.setMovable(False); self.addToolBar(options)
-        self.color_button=QPushButton('Color'); self.color_button.clicked.connect(self.pick_color); options.addWidget(self.color_button); self.update_color()
-        self.brush_size=QSpinBox(); self.brush_size.setRange(1,2048); self.brush_size.setValue(32); self.brush_size.setSuffix(' px'); options.addWidget(QLabel('  Size ')); options.addWidget(self.brush_size)
-        self.brush_opacity=QSpinBox(); self.brush_opacity.setRange(1,100); self.brush_opacity.setValue(100); self.brush_opacity.setSuffix('%'); options.addWidget(QLabel('  Opacity ')); options.addWidget(self.brush_opacity)
-        self.hardness=QSpinBox(); self.hardness.setRange(0,100); self.hardness.setValue(80); options.addWidget(QLabel('  Hardness ')); options.addWidget(self.hardness)
-        self.mask_target=QCheckBox('Paint mask'); options.addWidget(self.mask_target)
-        self.tolerance=QSpinBox(); self.tolerance.setRange(0,255); self.tolerance.setValue(32); self.tolerance.setToolTip('Magic wand tolerance'); options.addWidget(self.tolerance)
-        self.shape_kind=QComboBox(); self.shape_kind.addItems(['rectangle','ellipse','rounded','line']); options.addWidget(self.shape_kind)
-        self.radial=QCheckBox('Radial'); options.addWidget(self.radial)
-        self.option_actions=options.actions(); self.update_tool_options()
+        toolbar.addSeparator(); toolbar.addWidget(icon_button('zoom','Actual pixels (Ctrl+1)',self.canvas.resetTransform)); toolbar.addWidget(icon_button('fit','Fit canvas (Ctrl+0)',self.canvas.fit))
+        toolbar.addSeparator()
+        swatches=QWidget(); swatches.setFixedSize(34,64)
+        self.background_button=QPushButton(swatches); self.background_button.setGeometry(2,30,32,32); self.background_button.setToolTip('Background color'); self.background_button.setAccessibleName('Background color'); self.background_button.clicked.connect(self.pick_background)
+        self.color_button=QPushButton(swatches); self.color_button.setGeometry(0,0,32,32); self.color_button.setToolTip('Foreground color'); self.color_button.setAccessibleName('Foreground color'); self.color_button.clicked.connect(self.pick_color); toolbar.addWidget(swatches)
+        swap=QAction('Swap foreground and background',self); swap.setShortcut('X'); swap.triggered.connect(self.swap_colors); self.addAction(swap)
+        self.update_color()
+        options=QToolBar('Tool options'); options.setMovable(False); options.setMinimumHeight(42); self.addToolBar(options)
+        self.tool_caption=QLabel('Move'); self.tool_caption.setMinimumWidth(105); self.tool_caption.setContentsMargins(8,0,10,0); options.addWidget(self.tool_caption); options.addSeparator()
+        self.option_widgets=[]
+        def option(widget,tools):
+            self.option_widgets.append((options.addWidget(widget),tools)); return widget
+        paint={'brush','erase','heal','clone','blur_brush'}
+        self.brush_size=QSpinBox(); self.brush_size.setRange(1,2048); self.brush_size.setValue(32); self.brush_size.setSuffix(' px'); self.brush_size.setFixedWidth(82); self.brush_size.setAccessibleName('Brush size'); option(QLabel(' Size '),paint); option(self.brush_size,paint)
+        self.brush_opacity=QSpinBox(); self.brush_opacity.setRange(1,100); self.brush_opacity.setValue(100); self.brush_opacity.setSuffix('%'); self.brush_opacity.setFixedWidth(72); self.brush_opacity.setAccessibleName('Brush opacity'); option(QLabel(' Opacity '),paint); option(self.brush_opacity,paint)
+        self.hardness=QSpinBox(); self.hardness.setRange(0,100); self.hardness.setValue(80); self.hardness.setSuffix('%'); self.hardness.setFixedWidth(72); self.hardness.setAccessibleName('Brush hardness'); option(QLabel(' Hardness '),paint); option(self.hardness,paint)
+        self.mask_target=QCheckBox('Paint mask'); option(self.mask_target,paint)
+        self.tolerance=QSpinBox(); self.tolerance.setRange(0,255); self.tolerance.setValue(32); self.tolerance.setAccessibleName('Magic wand tolerance'); option(QLabel(' Tolerance '),{'wand'}); option(self.tolerance,{'wand'})
+        self.shape_kind=QComboBox(); self.shape_kind.addItems(['rectangle','ellipse','rounded','line']); option(self.shape_kind,{'shape'})
+        self.radial=QCheckBox('Radial'); option(self.radial,{'gradient'})
+        self.show_transform=QCheckBox('Transform controls'); self.show_transform.setChecked(True); self.show_transform.toggled.connect(self.canvas.selection_overlay); option(self.show_transform,{'move'})
+        self.selection_hint=QLabel('Shift: add    Alt: subtract'); option(self.selection_hint,{'rectangle','ellipse','lasso','wand'})
+        spacer=QWidget(); spacer.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Preferred); options.addWidget(spacer)
+        for name,label,attribute in [('generate','Generate','generation_dock'),('chat','ChatGPT','chat_dock'),('book','Projects','production_dock')]:
+            button=QToolButton(); button.setIcon(icon(name)); button.setIconSize(QSize(18,18)); button.setText(label); button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon); button.setMinimumWidth(96); button.setToolTip('Open '+label); button.clicked.connect(lambda checked=False,attribute=attribute:self.show_panel(getattr(self,attribute))); options.addWidget(button)
+        self.update_tool_options()
+
+    def show_panel(self,dock):
+        for other in (self.generation_dock,self.chat_dock,self.production_dock):
+            if other is not dock: other.hide()
+        dock.show(); dock.raise_(); self.resizeDocks([dock,self.layer_dock],[360,300],Qt.Orientation.Horizontal)
 
     def dock(self,title,widget):
-        dock=QDockWidget(title,self); dock.setWidget(widget); dock.setMinimumWidth(350); dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures); self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,dock)
+        dock=QDockWidget(title,self); dock.setWidget(widget); dock.setMinimumWidth(300); dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable); self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,dock)
+        # Secondary workspaces open beside the permanent inspector, preserving Layers.
+        self.splitDockWidget(self.layer_dock,dock,Qt.Orientation.Horizontal)
+        header=QWidget(); row=QHBoxLayout(header); row.setContentsMargins(10,0,4,0); row.addWidget(QLabel(title)); row.addStretch(); row.addWidget(icon_button('close','Close '+title,dock.hide)); dock.setTitleBarWidget(header)
         return dock
 
     def build_layers(self):
-        panel=QWidget(); layout=QVBoxLayout(panel); row=QHBoxLayout(); self.blend=QComboBox(); self.blend.addItems(pixels.BLENDS); self.blend.currentTextChanged.connect(lambda v:self.property_changed('blend',v)); row.addWidget(self.blend)
-        self.opacity=QSpinBox(); self.opacity.setRange(0,100); self.opacity.setSuffix('%'); self.opacity.valueChanged.connect(lambda v:self.property_changed('opacity',v/100)); row.addWidget(self.opacity); layout.addLayout(row)
-        self.layers=QListWidget(); self.layers.setIconSize(QSize(40,32)); self.layers.itemClicked.connect(self.select_layer); self.layers.itemChanged.connect(self.layer_changed); self.layers.itemDoubleClicked.connect(lambda _:self.rename_layer()); layout.addWidget(self.layers)
-        buttons=QHBoxLayout()
-        for label,fn in [('+',lambda:self.edit('add_layer')),('Copy',lambda:self.edit('duplicate_layer')),('↑',lambda:self.reorder(1)),('↓',lambda:self.reorder(-1)),('−',lambda:self.edit('delete_layer'))]:
-            b=QPushButton(label); b.setMinimumWidth(32); b.clicked.connect(fn); buttons.addWidget(b)
-        layout.addLayout(buttons)
-        form=QFormLayout(); self.transform_fields={}
-        for key,label in [('x','X'),('y','Y'),('sx','Scale X'),('sy','Scale Y'),('angle','Rotation')]:
-            spin=QDoubleSpinBox(); spin.setRange(-100000,100000); spin.setDecimals(2); spin.setMinimumWidth(100); spin.setMaximumWidth(180); spin.setSingleStep(.1 if key in ('sx','sy') else 1); spin.editingFinished.connect(lambda key=key,spin=spin:self.property_changed(key,spin.value())); self.transform_fields[key]=spin; form.addRow(label,spin)
-        layout.addLayout(form); self.locked=QCheckBox('Lock layer'); self.locked.toggled.connect(lambda v:self.property_changed('locked',v)); layout.addWidget(self.locked)
-        self.parent_group=QComboBox(); self.parent_group.currentIndexChanged.connect(self.change_group); layout.addWidget(self.parent_group)
-        edit_content=QPushButton('Edit layer content…'); edit_content.clicked.connect(self.edit_layer_content); layout.addWidget(edit_content)
-        self.clipping=QCheckBox('Clip to layer below'); self.clipping.toggled.connect(lambda v:self.property_changed('clipping',v)); layout.addWidget(self.clipping)
-        self.layer_dock=self.dock('Layers',panel)
+        inspector=QWidget(); inspector.setObjectName('inspector'); outer=QVBoxLayout(inspector); outer.setContentsMargins(0,0,0,0); outer.setSpacing(0)
+        stack=QSplitter(Qt.Orientation.Vertical); stack.setChildrenCollapsible(False); stack.setHandleWidth(4); outer.addWidget(stack)
+        def section(title,widget):
+            tabs=QTabWidget(); tabs.addTab(widget,title); stack.addWidget(tabs); return tabs
+        self.color_panel=ColorPanel(self); section('Color',self.color_panel).setMinimumHeight(150); self.color_panel.sync()
+        properties=QWidget(); prop=QVBoxLayout(properties); prop.setContentsMargins(12,8,12,8); prop.setSpacing(6)
+        self.layer_caption=QLabel('No layer selected'); self.layer_caption.setWordWrap(True); prop.addWidget(self.layer_caption)
+        label=QLabel('Transform'); label.setObjectName('sectionLabel'); prop.addWidget(label)
+        fields=QGridLayout(); fields.setHorizontalSpacing(8); fields.setVerticalSpacing(4); self.transform_fields={}
+        for key,label,r,c in [('sx','W',0,0),('sy','H',0,2),('x','X',1,0),('y','Y',1,2),('angle','Angle',2,0)]:
+            spin=QDoubleSpinBox(); spin.setRange(-100000,100000); spin.setDecimals(1); spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons); spin.setMinimumWidth(60); spin.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed); spin.setSuffix(' px' if key!='angle' else '°'); spin.setSingleStep(1); spin.setAccessibleName({'sx':'Layer width','sy':'Layer height'}.get(key,label)); spin.editingFinished.connect(lambda key=key,spin=spin:self.transform_changed(key,spin.value())); self.transform_fields[key]=spin
+            fields.addWidget(QLabel(label),r,c); fields.addWidget(spin,r,c+1)
+        flips=QHBoxLayout(); flips.setSpacing(0); flips.addWidget(icon_button('flip_h','Flip horizontally',lambda:self.flip('sx'))); flips.addWidget(icon_button('flip_v','Flip vertically',lambda:self.flip('sy'))); fields.addLayout(flips,2,2,1,2); prop.addLayout(fields)
+        self.parent_group=QComboBox(); self.parent_group.setAccessibleName('Parent group'); self.parent_group.currentIndexChanged.connect(self.change_group); prop.addWidget(self.parent_group)
+        edit_content=QPushButton('Edit content…'); edit_content.clicked.connect(self.edit_layer_content); prop.addWidget(edit_content); prop.addStretch(); section('Properties',properties).setMinimumHeight(280)
+        panel=QWidget(); layout=QVBoxLayout(panel); layout.setContentsMargins(0,6,0,0); layout.setSpacing(4)
+        row=QHBoxLayout(); row.setContentsMargins(8,0,8,0); self.blend=QComboBox(); self.blend.addItems(pixels.BLENDS); self.blend.setAccessibleName('Layer blend mode'); self.blend.currentTextChanged.connect(lambda v:self.property_changed('blend',v)); row.addWidget(self.blend,1)
+        row.addWidget(QLabel('Opacity')); self.opacity=QSpinBox(); self.opacity.setRange(0,100); self.opacity.setSuffix('%'); self.opacity.setFixedWidth(67); self.opacity.setAccessibleName('Layer opacity'); self.opacity.valueChanged.connect(lambda v:self.property_changed('opacity',v/100)); row.addWidget(self.opacity); layout.addLayout(row)
+        row=QHBoxLayout(); row.setContentsMargins(8,0,8,0); self.locked=QCheckBox('Lock'); self.locked.toggled.connect(lambda v:self.property_changed('locked',v)); row.addWidget(self.locked)
+        self.clipping=QCheckBox('Clip to layer below'); self.clipping.toggled.connect(lambda v:self.property_changed('clipping',v)); row.addWidget(self.clipping); row.addStretch(); layout.addLayout(row)
+        self.layers=QListWidget(); self.layers.setIconSize(QSize(40,30)); self.layers.setItemDelegate(LayerDelegate(self.layers)); self.layers.itemClicked.connect(self.select_layer); self.layers.itemChanged.connect(self.layer_changed); self.layers.itemDoubleClicked.connect(lambda _:self.rename_layer()); layout.addWidget(self.layers,1)
+        buttons=QHBoxLayout(); buttons.setContentsMargins(4,2,4,2); buttons.setSpacing(1); buttons.addStretch()
+        for name,label,fn in [('effects','Layer effects',self.effects_dialog),('mask','Add layer mask',lambda:self.edit('mask',{'mode':'white'})),('group','New group',lambda:self.edit('add_layer',{'kind':'group','name':'Group'})),('plus','New layer',lambda:self.edit('add_layer')),('copy','Duplicate layer',lambda:self.edit('duplicate_layer')),('up','Raise layer',lambda:self.reorder(1)),('down','Lower layer',lambda:self.reorder(-1)),('delete','Delete layer',lambda:self.edit('delete_layer'))]: buttons.addWidget(icon_button(name,label,fn))
+        layout.addLayout(buttons); section('Layers',panel).setMinimumHeight(200)
+        stack.setSizes([210,280,370]); self.inspector_stack=stack
+        self.layer_dock=QDockWidget('Inspector',self); self.layer_dock.setWidget(inspector); self.layer_dock.setMinimumWidth(300); self.layer_dock.setMaximumWidth(340); self.layer_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures); self.layer_dock.setTitleBarWidget(QWidget()); self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.layer_dock)
 
     def build_generation(self):
-        panel=QWidget(); layout=QVBoxLayout(panel); self.prompt=QPlainTextEdit(); self.prompt.setPlaceholderText('Describe an image or the change you want…'); self.prompt.setMaximumHeight(105); layout.addWidget(self.prompt)
+        panel=QWidget(); layout=QVBoxLayout(panel); layout.setSpacing(10); self.prompt=QPlainTextEdit(); self.prompt.setPlaceholderText('Describe an image or the change you want…'); self.prompt.setFixedHeight(130); layout.addWidget(self.prompt)
         row=QHBoxLayout(); self.gen_kind=QComboBox(); self.gen_kind.addItem('New image','generate'); self.gen_kind.addItem('Edit whole image','edit'); self.gen_kind.addItem('Refine selected area','patch'); row.addWidget(self.gen_kind)
         self.gen_size=QComboBox(); self.gen_size.setEditable(True); self.gen_size.addItems(['1024x1024','1536x1024','1024x1536','2048x1152']); row.addWidget(self.gen_size); layout.addLayout(row)
         row=QHBoxLayout(); ref=QPushButton('References…'); ref.clicked.connect(self.choose_references); row.addWidget(ref); self.ref_label=QLabel('None'); row.addWidget(self.ref_label); layout.addLayout(row)
         self.gen_provider_label=QLabel(); self.gen_provider_label.setWordWrap(True); layout.addWidget(self.gen_provider_label)
         generate=QPushButton('Generate candidate'); generate.clicked.connect(self.generate); layout.addWidget(generate)
-        self.jobs=QListWidget(); self.jobs.setIconSize(QSize(56,48)); self.jobs.setMaximumHeight(190); layout.addWidget(self.jobs)
+        self.jobs=QListWidget(); self.jobs.setIconSize(QSize(56,48)); layout.addWidget(self.jobs,1)
         row=QHBoxLayout()
         for title,fn in [('Inspect',self.inspect_job),('Apply',self.apply_job),('Place as layer',self.import_job)]:
             b=QPushButton(title); b.clicked.connect(fn); row.addWidget(b)
-        layout.addLayout(row); self.generation_dock=self.dock('Generate',panel); self.tabifyDockWidget(self.layer_dock,self.generation_dock); self.layer_dock.raise_()
+        layout.addLayout(row); self.generation_dock=self.dock('Generate',panel); self.generation_dock.hide()
 
     def build_chat(self):
         panel=QWidget(); layout=QVBoxLayout(panel); top=QHBoxLayout(); self.login_button=QPushButton('Sign in with ChatGPT'); self.login_button.clicked.connect(self.chat_login); top.addWidget(self.login_button)
@@ -292,11 +384,11 @@ class Editor(QMainWindow):
         self.chat_stream=QPlainTextEdit(); self.chat_stream.setReadOnly(True); self.chat_stream.setMaximumHeight(160); self.chat_stream.hide(); layout.addWidget(self.chat_stream)
         self.chat_input=QPlainTextEdit(); self.chat_input.setPlaceholderText('Talk through your artwork…'); self.chat_input.setMaximumHeight(90); layout.addWidget(self.chat_input)
         row=QHBoxLayout(); send=QPushButton('Send'); send.clicked.connect(self.chat_send); row.addWidget(send); stop=QPushButton('Stop'); stop.clicked.connect(self.chat_stop); row.addWidget(stop); layout.addLayout(row)
-        self.chat_dock=self.dock('ChatGPT',panel); self.tabifyDockWidget(self.generation_dock,self.chat_dock); self.layer_dock.raise_(); self.chat=None
+        self.chat_dock=self.dock('ChatGPT',panel); self.chat_dock.hide(); self.chat=None
 
     def build_production(self):
         from .production_ui import ProductionPanel
-        self.production=ProductionPanel(self); self.production_dock=self.dock('Projects',self.production); self.tabifyDockWidget(self.chat_dock,self.production_dock); self.layer_dock.raise_()
+        self.production=ProductionPanel(self); self.production_dock=self.dock('Projects',self.production); self.production_dock.hide()
 
     def run(self,action,args=None):
         try:
@@ -305,13 +397,22 @@ class Editor(QMainWindow):
             return result
         except Exception as e: self.statusBar().showMessage(str(e),18000); QMessageBox.warning(self,'Compositor',str(e)); return None
     def edit(self,operation,args=None,expected=None): return self.run('edit',{'operation':operation,'args':args or {},'expectedRevision':expected})
-    def set_tool(self,key): self.tool=key; self.update_tool_options(); self.canvas.selection_overlay(); self.statusBar().showMessage(self.tool_actions[key].toolTip())
+    def set_tool(self,key):
+        self.tool=key; self.tool_actions[key].setChecked(True); self.update_tool_options(); self.canvas.selection_overlay(); self.statusBar().showMessage(self.tool_actions[key].toolTip(),3000)
+        self.canvas.setCursor(Qt.CursorShape.OpenHandCursor if key=='hand' else Qt.CursorShape.ArrowCursor if key=='move' else Qt.CursorShape.CrossCursor)
     def update_tool_options(self):
-        if not hasattr(self,'option_actions'): return
-        paint=self.tool in ('brush','erase','heal','clone','blur_brush')
-        visible={0:self.tool in ('brush','text','shape','gradient','eyedropper'),1:paint,2:paint,3:paint,4:paint,5:paint,6:paint,7:paint,8:self.tool=='wand',9:self.tool=='shape',10:self.tool=='gradient'}
-        for i,action in enumerate(self.option_actions): action.setVisible(visible.get(i,False))
-    def update_color(self): self.color_button.setStyleSheet(f'background:{self.color};color:{"black" if QColor(self.color).lightness()>130 else "white"}')
+        if not hasattr(self,'option_widgets'): return
+        self.tool_caption.setText(self.tool_actions[self.tool].text())
+        for action,tools in self.option_widgets: action.setVisible(self.tool in tools)
+    def update_color(self):
+        self.color_button.setStyleSheet(f'background:{self.color};border:2px solid #c8c8c8;padding:0;')
+        self.background_button.setStyleSheet(f'background:{self.background_color};border:2px solid #888;padding:0;')
+        if hasattr(self,'color_panel'): self.color_panel.sync()
+    def swap_colors(self):
+        self.color,self.background_color=self.background_color,self.color; self.update_color()
+    def pick_background(self):
+        color=QColorDialog.getColor(QColor(self.background_color),self,'Background color')
+        if color.isValid(): self.background_color=color.name(); self.update_color()
     def pick_color(self):
         color=QColorDialog.getColor(QColor(self.color),self,'Foreground color')
         if color.isValid(): self.color=color.name(); self.update_color()
@@ -323,10 +424,11 @@ class Editor(QMainWindow):
             while self.tabs.count(): self.tabs.removeTab(0)
             for d in self.ws.documents.values():
                 i=self.tabs.addTab(d.title+(' •' if d.revision!=d.saved_revision else '')); self.tabs.setTabData(i,d.id)
+                close=icon_button('close','Close '+d.title,lambda checked=False,doc_id=d.id:self.close_document_tab(doc_id)); self.tabs.setTabButton(i,QTabBar.ButtonPosition.RightSide,close)
                 if d.id==self.ws.active: self.tabs.setCurrentIndex(i)
             self.tabs.blockSignals(False); self.layers.clear()
             if self.ws.active:
-                d=self.ws.document(); self.setWindowTitle(d.title+' — Compositor')
+                d=self.ws.document(); self.setWindowTitle(d.title+' — Compositor'); self.document_label.setText(f'{d.width} × {d.height} px   ·   RGB / 8')
                 for l in reversed(d.layers):
                     item=QListWidgetItem(('    ' if l.parent else '')+l.name+('  ◐' if l.mask else '')); item.setData(Qt.ItemDataRole.UserRole,l.id); item.setFlags(item.flags()|Qt.ItemFlag.ItemIsUserCheckable); item.setCheckState(Qt.CheckState.Checked if l.visible else Qt.CheckState.Unchecked)
                     if l.kind not in ('group','adjustment'):
@@ -335,7 +437,9 @@ class Editor(QMainWindow):
                     if l.id==d.active: self.layers.setCurrentItem(item)
                 if d.active:
                     l=d.layer(); self.blend.setCurrentText(l.blend); self.opacity.setValue(round(l.opacity*100)); self.locked.setChecked(l.locked); self.clipping.setChecked(l.clipping)
-                    for k,spin in self.transform_fields.items(): spin.setValue(getattr(l,k))
+                    self.layer_caption.setText(l.kind.title()+' layer · '+l.name)
+                    content=pixels.content(l)
+                    for k,spin in self.transform_fields.items(): spin.setValue(abs(l.sx)*content.width if k=='sx' else abs(l.sy)*content.height if k=='sy' else getattr(l,k))
                     self.parent_group.clear(); self.parent_group.addItem('Outside groups',None)
                     for group in d.layers:
                         if group.kind=='group' and group.id!=l.id: self.parent_group.addItem(group.name,group.id)
@@ -355,6 +459,9 @@ class Editor(QMainWindow):
 
     def activate_tab(self,index):
         if not self.refreshing and index>=0: self.run('activate',{'documentId':self.tabs.tabData(index)})
+    def close_document_tab(self,doc_id):
+        for i in range(self.tabs.count()):
+            if self.tabs.tabData(i)==doc_id: self.close_tab(i); return
     def close_tab(self,index):
         d=self.ws.document(self.tabs.tabData(index))
         if d.revision!=d.saved_revision and not self.ws.projects.for_document(d.id):
@@ -367,6 +474,12 @@ class Editor(QMainWindow):
     def property_changed(self,key,value):
         if not self.refreshing and self.ws.active and self.ws.document().active:
             if getattr(self.ws.document().layer(),key)!=value: self.edit('update_layer',{key:value})
+    def transform_changed(self,key,value):
+        if self.refreshing or not self.ws.active or not self.ws.document().active: return
+        layer=self.ws.document().layer()
+        if key in ('sx','sy'):
+            content=pixels.content(layer); value=math.copysign(max(.01,value/(content.width if key=='sx' else content.height)),getattr(layer,key))
+        self.property_changed(key,value)
     def select_layer(self,item):
         if not self.refreshing: self.ws.document().active=item.data(Qt.ItemDataRole.UserRole); self.ws.changed.emit()
     def layer_changed(self,item):

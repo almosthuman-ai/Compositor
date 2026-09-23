@@ -21,6 +21,8 @@ def test_portable_book_retains_layers_prose_references_and_live_edits(tmp_path):
     first=project['pages'][0]['id']; second=project['pages'][1]['id']
     ws.dispatch('edit',{'operation':'add_layer','args':{'kind':'shape','params':{'width':16,'height':16,'color':'red'}}})
     act('update_page',pageId=first,text='A line of prose.\nAnother paragraph.',prompt='An orange fox')
+    act('update_page',pageId=first,title='The first page')
+    assert ws.document().title=='The first page'
     reference=tmp_path/'reference.png'; Image.new('RGBA',(10,10),'blue').save(reference)
     act('add_reference',path=str(reference),role='character',label='Fox')
     act('select',pageId=second); ws.dispatch('edit',{'operation':'fill','args':{'color':'green'}})

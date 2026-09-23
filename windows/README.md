@@ -4,6 +4,12 @@ A layered image editor for Windows 10, with generative editing and tools an AI c
 
 This edition is in active development. It preserves Robbie Tilton's original Mac application in the repository and provides a separate Windows implementation. See [current capabilities and remaining work](../module-manifest.md) before relying on a feature for production.
 
+![Windows editor with an icon tool rail, pixel rulers and stacked Color, Properties and Layers panels](docs/editor.png)
+
+The tool rail keeps familiar shortcuts: V to move, M to select, B to paint and H to pan. Hover over an icon for its name and shortcut. Space-drag pans the canvas; the mouse wheel zooms. Ctrl+0 fits the artwork and Ctrl+1 shows actual pixels.
+
+Color, Properties and Layers stay beside the canvas. Width and height in Properties are pixel dimensions; resizing a layer preserves its source pixels. Open Generate, ChatGPT or Projects from the options bar when needed, and close their panels to reclaim canvas space.
+
 ## Run from source
 
 Install Python 3.11 for Windows, then run:
