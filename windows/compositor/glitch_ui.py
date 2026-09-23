@@ -3,7 +3,7 @@ import copy,json,re,uuid
 from pathlib import Path
 from PIL import Image
 from shiboken6 import isValid
-from PySide6.QtCore import Qt,QTimer,QSize
+from PySide6.QtCore import Qt,QTimer,QSize,QEvent
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QWidget,QLabel,QPushButton,QComboBox,
     QSpinBox,QDoubleSpinBox,QCheckBox,QLineEdit,QListWidget,QListWidgetItem,QSplitter,QScrollArea,QTabWidget,
@@ -34,6 +34,7 @@ class GlitchDialog(QDialog):
     def __init__(self,editor):
         super().__init__(editor); self.editor=editor; self.ws=editor.ws; self.document=self.ws.document()
         self.recipe=None; self.catalog=None; self.job_id=None; self.loop_id=None; self.local_revision=0; self.render_revision=None; self.updating=False
+        self.export_options={'scale':1} if self.document.pixel_art else {'maxDimension':960}
         self.setWindowTitle('Glitch Temple'); self.resize(1200,850); self.setMinimumSize(960,680)
         layout=QVBoxLayout(self); top=QHBoxLayout(); layout.addLayout(top)
         title=QLabel('Glitch Temple'); title.setStyleSheet('font-size:20px;font-weight:600;'); top.addWidget(title)
@@ -54,6 +55,7 @@ class GlitchDialog(QDialog):
         self.scene=QGraphicsScene(); self.view=QGraphicsView(self.scene); self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.image=QGraphicsPixmapItem(); self.scene.addItem(self.image); split.addWidget(self.view)
         self.zoom=QComboBox();self.zoom.addItems(['Fit','100%','200%','400%','800%']);self.zoom.setMinimumHeight(32);self.zoom.setAccessibleName('Preview zoom');preview_options.addWidget(self.zoom);self.zoom.currentTextChanged.connect(self.set_zoom)
+        self.fit_timer=QTimer(self);self.fit_timer.setSingleShot(True);self.fit_timer.timeout.connect(self.set_zoom);self.view.viewport().installEventFilter(self)
         controls=QWidget(); controls.setMinimumWidth(390); controls.setMaximumWidth(470); side=QVBoxLayout(controls); split.addWidget(controls); split.setSizes([740,420])
         addrow=QHBoxLayout(); self.library=QComboBox(); addrow.addWidget(self.library,1)
         add=self.button('Add effect',self.add_effect); addrow.addWidget(add); side.addLayout(addrow)
@@ -95,10 +97,13 @@ class GlitchDialog(QDialog):
     def clear(self,form):
         while form.rowCount():form.removeRow(0)
 
-    def control(self,form,data,key,label=None,definition=None,choices=None):
+    def control(self,form,data,key,label=None,definition=None,choices=None,affects_render=True):
         value=data[key]; label=label or LABELS.get(key,re.sub(r'([a-z])([A-Z])',r'\1 \2',key).capitalize())
         definition=definition or {}; choices=choices or CHOICES.get(key)
-        def changed(value): data[key]=value; self.dirty()
+        def changed(value):
+            data[key]=value
+            if affects_render:self.dirty()
+            else:self.export_availability()
         if key.lower().endswith('color') and isinstance(value,int):
             widget=self.button(f'#{value:06x}',lambda:self.choose_color(widget,data,key))
             widget.setStyleSheet(f'border-left:18px solid #{value:06x};')
@@ -143,6 +148,7 @@ class GlitchDialog(QDialog):
         available=matches and loop.get('status') not in ('queued','running','encoding','stopping')
         for button in (self.gif_button,self.mp4_button):
             button.setEnabled(available);button.setToolTip('Export the applied treatment within the composition' if matches else 'Apply the current treatment before exporting a loop')
+        if matches:self.mp4_button.setToolTip('MP4 compresses colors and has no transparency. Use PNG for exact colors, or GIF for palette-limited animation.')
 
     def populate(self):
         self.updating=True; index=self.chain.currentRow(); self.chain.clear()
@@ -165,8 +171,22 @@ class GlitchDialog(QDialog):
             self.control(self.color_form,self.recipe['paletteSettings'],key,choices=choices)
         self.color_form.addRow(self.button('Build palette from settings',self.build_palette))
         self.clear(self.settings_form)
-        for key in ('seed','colorSeed','iteration','loopFrames','loopFps'):self.control(self.settings_form,self.recipe,key)
-        note=QLabel('Loops animate the applied layer within the complete composition. Exports fit within 960 pixels; pixel artwork uses nearest-neighbor sampling.');note.setWordWrap(True);self.settings_form.addRow(note)
+        for key in ('seed','colorSeed','iteration','loopFrames','loopFps'):
+            self.control(self.settings_form,self.recipe,key,affects_render=key not in ('loopFrames','loopFps'))
+        size_control=QSpinBox();size_control.setMinimumHeight(32)
+        key='scale' if self.document.pixel_art else 'maxDimension'
+        size_control.setRange(1 if self.document.pixel_art else 32,min(16,max(1,3840//max(self.document.width,self.document.height))) if self.document.pixel_art else 3840)
+        size_control.setSuffix('×' if self.document.pixel_art else ' px');size_control.setValue(self.export_options[key])
+        label='Pixel enlargement' if self.document.pixel_art else 'Fit within'
+        size_control.setAccessibleName(label);self.settings_form.addRow(label,size_control)
+        output_label=QLabel();self.settings_form.addRow('Output size',output_label)
+        def output_size(value):
+            from .glitch import export_dimensions
+            self.export_options[key]=value
+            try:output_label.setText(' × '.join(map(str,export_dimensions(self.document,self.export_options)))+' px')
+            except ValueError as error:output_label.setText(str(error))
+        size_control.valueChanged.connect(output_size);output_size(size_control.value())
+        note=QLabel('Loops animate the applied layer within the complete composition. Pixel enlargement uses solid blocks with no smoothing.' if self.document.pixel_art else 'Loops animate the applied layer within the complete composition. Other layers remain in place.');note.setWordWrap(True);self.settings_form.addRow(note)
         self.updating=False; self.effect_controls()
 
     def effect_controls(self,*_):
@@ -281,7 +301,7 @@ class GlitchDialog(QDialog):
             self.catalog=self.engine.catalog;self.recipe=self.saved_recipe or copy.deepcopy(self.catalog['defaults'])
             if not self.saved_recipe:self.recipe.update(effects=[],colorMode='source')
             for definition in self.catalog['definitions']:self.library.addItem(definition['name'],definition['type'])
-            self.populate();self.status.setText('Choose an effect, then render the treatment. Original artwork is retained.')
+            self.populate();self.status.setText('Saved treatment. Adjust settings and render to revise it, or export a loop.' if self.saved_recipe else 'Choose an effect, then render the treatment. Original artwork is retained.')
             self.render_button.setEnabled(True)
         loop=self.engine.jobs.get(self.loop_id,{})
         looping=loop.get('status') in ('queued','running','encoding','stopping')
@@ -326,9 +346,16 @@ class GlitchDialog(QDialog):
 
     def set_zoom(self,*_):
         self.view.resetTransform()
-        if self.zoom.currentText()=='Fit':self.view.fitInView(self.image,Qt.AspectRatioMode.KeepAspectRatio)
+        fit=self.zoom.currentText()=='Fit'
+        policy=Qt.ScrollBarPolicy.ScrollBarAlwaysOff if fit else Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        self.view.setHorizontalScrollBarPolicy(policy);self.view.setVerticalScrollBarPolicy(policy)
+        if fit:self.view.fitInView(self.image.boundingRect(),Qt.AspectRatioMode.KeepAspectRatio)
         else:
             scale=float(self.zoom.currentText().strip('%'))/100;self.view.scale(scale,scale)
+
+    def eventFilter(self,watched,event):
+        if watched is self.view.viewport() and event.type()==QEvent.Type.Resize and self.zoom.currentText()=='Fit':self.fit_timer.start(0)
+        return super().eventFilter(watched,event)
 
     def cancel(self):
         active=self.loop_id if self.loop_id and self.engine.jobs[self.loop_id]['status'] in ('queued','running','encoding','stopping') else self.job_id
@@ -340,7 +367,7 @@ class GlitchDialog(QDialog):
         if not Path(path).suffix:path+='.'+extension
         try:
             job=self.engine.dispatch({'operation':'export','documentId':self.document.id,'layerId':self.layer_id,'path':path,
-                                      'frames':self.recipe['loopFrames'],'fps':self.recipe['loopFps']})
+                                      'frames':self.recipe['loopFrames'],'fps':self.recipe['loopFps'],**self.export_options})
             self.loop_id=job['id'];self.refresh_job()
         except Exception as error:self.status.setText(str(error))
 

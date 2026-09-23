@@ -8,6 +8,20 @@ from .settings import atomic_json
 from . import pixels
 
 
+def export_dimensions(document,args):
+    if args.get('scale') is not None or (document.pixel_art and 'maxDimension' not in args):
+        if not document.pixel_art:raise ValueError('Integer enlargement is available for pixel artwork. Use maxDimension for other images.')
+        if 'maxDimension' in args:raise ValueError('Choose integer enlargement or a maximum dimension, not both.')
+        scale=float(args.get('scale',1))
+        if not scale.is_integer() or not 1<=scale<=16:raise ValueError('Choose a whole-number enlargement from 1 to 16.')
+        size=[document.width*int(scale),document.height*int(scale)]
+        if max(size)>3840:raise ValueError('Choose a smaller enlargement. Animation exports support up to 3840 pixels per side.')
+        return size
+    maximum=max(32,min(3840,int(args.get('maxDimension',960))))
+    ratio=min(1,maximum/max(document.width,document.height))
+    return [max(1,round(document.width*ratio)),max(1,round(document.height*ratio))]
+
+
 class TempleBridge(QObject):
     def __init__(self,owner): super().__init__(owner); self.owner=owner
     @Slot(str)
@@ -168,6 +182,7 @@ class GlitchTemple(QObject):
             if finish['paletteMode']=='document' and (not export_path or not finish.get('palette')):
                 finish['palette']=copy.deepcopy(document.pixel_art.get('palette') or finish.get('palette',[]))
                 if not finish['palette']:raise ValueError('This document has no palette. Choose Effect colors or convert the artwork to a limited palette first.')
+        output_size=export_dimensions(document,args) if export_path else None
         job_id=str(uuid.uuid4()); folder=self.root/job_id; folder.mkdir()
         image.save(folder/'source.png')
         selection=None
@@ -181,9 +196,6 @@ class GlitchTemple(QObject):
         if export_path:
             frame_count=max(2,min(240,int(args.get('frames',recipe.get('loopFrames',36)))))
             fps=max(1,min(30,int(args.get('fps',recipe.get('loopFps',12)))))
-            maximum=max(32,min(3840,int(args.get('maxDimension',960))))
-            ratio=min(1,maximum/max(document.width,document.height))
-            output_size=[max(1,round(document.width*ratio)),max(1,round(document.height*ratio))]
             composition.save(folder/'composition.compwin',mark_saved=False)
             job.update(kind='loop',exportPath=str(export_path),frames=frame_count,fps=fps,framesRendered=0,
                        outputSize=output_size,autoApply=False,pixelArt=bool(document.pixel_art))
