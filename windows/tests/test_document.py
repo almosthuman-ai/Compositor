@@ -5,6 +5,13 @@ from PIL import Image
 from compositor.document import Document, Layer
 from compositor.pixels import blend, BLENDS
 
+def test_hidden_layer_creation_has_no_visible_intermediate_and_undo_restores():
+    d=Document(8,8); d.execute('add_layer',{'color':'white'}); before=d.render().tobytes()
+    d.execute('add_layer',{'name':'Hidden art','color':'red','visible':False,'opacity':.5})
+    assert not d.layer().visible and d.layer().opacity==.5 and d.render().tobytes()==before
+    d.execute('update_layer',{'visible':True}); assert d.render().tobytes()!=before
+    d.execute('undo'); d.execute('undo'); assert len(d.layers)==1 and d.render().tobytes()==before
+
 def test_mask_can_restore_hidden_pixels_and_undo():
     d=Document(64,64); d.execute('add_layer',{'color':'red'}); d.execute('mask',{'mode':'black'})
     assert d.render().getpixel((32,32))[3]==0

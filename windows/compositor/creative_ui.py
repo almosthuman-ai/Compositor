@@ -11,6 +11,16 @@ def button(row,label,fn):
     value=QPushButton(label); value.clicked.connect(fn); row.addWidget(value); return value
 
 
+class GenerationRoutePicker(QWidget):
+    def __init__(self,workspace):
+        super().__init__(); self.ws=workspace; row=QHBoxLayout(self); row.setContentsMargins(0,0,0,0); row.addWidget(QLabel('Generate with'))
+        self.choice=QComboBox(); self.choice.setAccessibleName('Generation route'); self.choice.addItem('API provider','api'); self.choice.addItem('ChatGPT subscription','chatgpt'); row.addWidget(self.choice,1)
+        self.choice.currentIndexChanged.connect(self.choose); self.ws.changed.connect(self.refresh); self.refresh()
+    def refresh(self):
+        self.choice.blockSignals(True); self.choice.setCurrentIndex(max(0,self.choice.findData(self.ws.settings.values['generationRoute']))); self.choice.blockSignals(False)
+    def choose(self,index): self.ws.dispatch('settings',{'generationRoute':self.choice.itemData(index)})
+
+
 class StyleDialog(QDialog):
     def __init__(self,editor,project=None,style_id=None):
         super().__init__(editor); self.editor=editor; self.ws=editor.ws; self.project=project; self.selected_id=style_id; self.refs=[]; self.loaded=None
@@ -88,7 +98,7 @@ class CharacterDialog(QDialog):
         form.addWidget(QLabel('Character references')); self.references=QListWidget(); self.references.setIconSize(QSize(80,72)); self.references.setMinimumHeight(90); form.addWidget(self.references,1)
         row=QHBoxLayout(); button(row,'Attach image…',self.attach); button(row,'Remove reference',self.remove_reference); form.addLayout(row)
         form.addWidget(QLabel('Reference sheet candidates')); self.candidates=QListWidget(); self.candidates.setIconSize(QSize(80,72)); form.addWidget(self.candidates,1)
-        row=QHBoxLayout(); button(row,'Generate sheet',self.generate); button(row,'Inspect',self.inspect_candidate); button(row,'Use reference',self.accept_candidate); form.addLayout(row); split.addWidget(right); split.setSizes([220,620])
+        form.addWidget(GenerationRoutePicker(self.ws)); row=QHBoxLayout(); button(row,'Generate sheet',self.generate); button(row,'Inspect',self.inspect_candidate); button(row,'Use reference',self.accept_candidate); form.addLayout(row); split.addWidget(right); split.setSizes([220,620])
         self.message=QLabel('Choose the characters on each page in the Projects panel.'); self.message.setWordWrap(True); root.addWidget(self.message)
         row=QHBoxLayout(); row.addStretch(); button(row,'Close',self.accept); root.addLayout(row)
         self.cast.currentItemChanged.connect(self.select); self.ws.changed.connect(self.refresh); self.refresh()
@@ -164,7 +174,9 @@ class CharacterDialog(QDialog):
     def generate(self):
         if self.save():
             result=self.action('generate_character',characterId=self.current)
-            if result: self.message.setText('Generating a reference sheet. Review the candidate, then choose Use reference.')
+            if result:
+                self.message.setText('Request sent to ChatGPT.' if result.get('route')=='chatgpt' else 'Generating a reference sheet. Review the candidate, then choose Use reference.')
+                if result.get('route')=='chatgpt': self.editor.chat.status.connect(self.message.setText,Qt.ConnectionType.UniqueConnection)
     def accept_candidate(self):
         if self.current and self.candidates.currentItem(): self.action('accept_character_reference',characterId=self.current,jobId=self.candidates.currentItem().data(Qt.ItemDataRole.UserRole))
     def inspect_candidate(self):

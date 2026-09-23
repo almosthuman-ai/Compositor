@@ -41,7 +41,9 @@ Open the ChatGPT panel and choose **Sign in with ChatGPT**. Compositor uses Open
 
 ChatGPT can inspect the canvas and use the same editing operations as the application. Its available models and native image generation depend on the signed-in account. Native image results appear as retained candidates in Generate. Subscription access is separate from API billing; signing in does not provide an Images API key.
 
-Runtime installation, initialization, model discovery and the official OAuth start/cancel flow have been verified on Windows 10. Signed-in conversation and subscription image generation still need account-level verification.
+The editor connects its tools automatically. GPT-6-Sol is the initial chat model; choose another from the model list. When signed in, the panel shows your account email when available and **Sign out**. Questions stay in the panel, so background work can continue while you type in another application. In Settings, you can choose a working folder for conversation files or keep the folder Compositor manages.
+
+Runtime installation, OAuth sign-in and a signed-in GPT-6-Sol conversation have been verified on Windows 10. The live conversation inspected the project and cast, edited and restored layers with undo, and generated a subscription image using the project's character reference and style. The image remained a review candidate, preserving the existing page.
 
 ## Image providers
 
@@ -49,9 +51,11 @@ In Settings, choose an OpenAI-compatible or Gemini provider, enter its image mod
 
 Generate a new image, edit the composite, or refine a selected region. Region edits send the exact crop and your chosen references. Choose a built-in style or create one in the style library. Each profile can include direction before and after your prompt, plus reference images. **Review prompt** shows the assembled instructions before you generate. Candidates retain their inputs, prompt, provider and native dimensions. Applying a candidate adds a layer; if you changed its source while it was generating, the app keeps the candidate for manual placement.
 
+**Generate with** selects the API provider or your ChatGPT subscription for images, project pages and character sheets. The subscription route sends the prepared prompt and references to the embedded conversation. It never switches to API billing automatically.
+
 ## Use with any MCP client
 
-Start Compositor, then configure a stdio MCP server:
+Start Compositor. Settings → **Copy external editor connection** copies the installed command and its configuration for an external MCP client. The embedded ChatGPT connection needs no manual configuration. A stdio configuration looks like this:
 
 ```json
 {

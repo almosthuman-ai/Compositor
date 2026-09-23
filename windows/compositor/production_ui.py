@@ -33,6 +33,8 @@ class ProductionPanel(QWidget):
         writing_layout.addWidget(QLabel('Image prompt')); self.prompt=QPlainTextEdit(); self.prompt.setPlaceholderText('Describe the scene for this page'); self.prompt.setFixedHeight(85); writing_layout.addWidget(self.prompt); writing_layout.addStretch()
         for field in (self.title,self.text,self.prompt): field.textChanged.connect(self.remember_draft)
         self.draft_status=QLabel(); writing_layout.addWidget(self.draft_status)
+        from .creative_ui import GenerationRoutePicker
+        layout.addWidget(GenerationRoutePicker(self.ws))
         row=QHBoxLayout()
         for title,fn in [('Save page text',self.save_text),('Generate page',self.generate)]:
             button=QPushButton(title); button.clicked.connect(fn); row.addWidget(button)
@@ -176,7 +178,7 @@ class ProductionPanel(QWidget):
     def generate(self):
         if not self.project() or not self.save_text(): return
         result=self.call('generate',{'pageId':self.key[1]})
-        if result: self.editor.show_panel(self.editor.generation_dock)
+        if result: self.editor.show_panel(self.editor.chat_dock if result.get('route')=='chatgpt' else self.editor.generation_dock)
     def export(self):
         project=self.project()
         if not project or not self.save_all_text(): return

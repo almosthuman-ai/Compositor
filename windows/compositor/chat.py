@@ -1,11 +1,15 @@
 """Official Codex app-server integration: managed ChatGPT login and persistent art conversations."""
 from pathlib import Path
-import base64, html, json, os, shutil, sys, time, uuid
+import base64, copy, html, json, os, shutil, sys, time, uuid
 from PySide6.QtCore import QObject, Signal, QProcess, QProcessEnvironment, QUrl, QTimer
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QMessageBox, QInputDialog
 from PIL import Image
 from .settings import atomic_json
+
+def editor_mcp_config(settings):
+    if getattr(sys,'frozen',False): command=str(Path(sys.executable).with_name('Compositor-Tools.exe')); args=['--mcp']
+    else: command=sys.executable; args=[str(Path(__file__).resolve().parents[1]/'run.py'),'--mcp']
+    return {'command':command,'args':args,'env':{'COMPOSITOR_DATA':str(settings.root),'PYTHONUTF8':'1'}}
 
 def runtime_command(configured=None):
     path=configured or shutil.which('codex.exe') or shutil.which('codex.cmd') or shutil.which('codex')
@@ -24,10 +28,14 @@ class ChatSession(QObject):
     status=Signal(str)
     ready=Signal()
     models_changed=Signal()
+    account_changed=Signal()
+    question=Signal(dict)
+    questions_cleared=Signal()
     def __init__(self,workspace,parent=None):
         super().__init__(parent); self.ws=workspace; self.owner=parent; self.pending={}; self.sequence=0; self.buffer=b''; self.initialized=False; self.busy=False; self.thread=None; self.turn=None; self.account=None; self.model=None; self.model_options=[]; self.after_ready=[]; self.message_fragments={}; self.active_document=None; self.source_revision=None
         self.root=workspace.settings.root/'chat'; self.root.mkdir(exist_ok=True); self.home=self.root/'codex'; self.home.mkdir(exist_ok=True)
-        self.work=self.root/'artifacts'; self.work.mkdir(exist_ok=True); self.metadata_path=self.root/'conversation.json'
+        self.model=workspace.settings.values.get('chat_model','gpt-6-sol')
+        self.work=Path(workspace.settings.values.get('chat_working_directory') or self.root/'artifacts').resolve(); self.work.mkdir(parents=True,exist_ok=True); self.metadata_path=self.root/'conversation.json'
         self.metadata=json.loads(self.metadata_path.read_text(encoding='utf-8')) if self.metadata_path.exists() else {}
         self.transcript_path=self.root/'conversation.jsonl'; self.account_checked=False
         self.proc=QProcess(self); self.proc.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels); self.proc.readyReadStandardOutput.connect(self.read_output); self.proc.readyReadStandardError.connect(self.read_error); self.proc.errorOccurred.connect(lambda _:self.status.emit('ChatGPT runtime could not start')); self.proc.finished.connect(self.finished)
@@ -36,18 +44,20 @@ class ChatSession(QObject):
         # The application owns its own sign-in and chat history. It never borrows another application's account.
         for key in env.keys():
             if key.startswith(('CODEX_','BUDDY_HOST_')) or key in ('OPENAI_API_KEY','OPENAI_BASE_URL'): env.remove(key)
-        env.insert('CODEX_HOME',str(self.home)); env.insert('COMPOSITOR_DATA',str(workspace.settings.root)); self.proc.setProcessEnvironment(env); self.proc.setWorkingDirectory(str(self.work))
+        env.insert('CODEX_HOME',str(self.home)); env.insert('COMPOSITOR_DATA',str(workspace.settings.root)); env.insert('PYTHONUTF8','1'); self.proc.setProcessEnvironment(env); self.proc.setWorkingDirectory(str(self.work))
         self.proc.started.connect(self.initialize)
         program,args=runtime_command(workspace.settings.values.get('codex_path')); self.proc.start(program,args+['app-server','--stdio'])
         self.watchdog=QTimer(self); self.watchdog.setInterval(5000); self.watchdog.timeout.connect(self.expire_requests); self.watchdog.start()
         self.last_stderr=''; self.native_sources={}; self.turn_started_at=0
+        self.requested_generation=None; self.generation_waiting=False
         self.stream_timer=QTimer(self); self.stream_timer.setInterval(100); self.stream_timer.timeout.connect(self.flush_stream); self.stream_timer.start(); self.stream_dirty=False
 
     def configure_mcp(self):
-        if getattr(sys,'frozen',False): command=str(Path(sys.executable).with_name('Compositor-Tools.exe')); args=['--mcp']
-        else: command=sys.executable; args=[str(Path(__file__).resolve().parents[1]/'run.py'),'--mcp']
+        connection=editor_mcp_config(self.ws.settings); command=connection['command']; args=connection['args']
         # JSON string escaping is compatible with TOML basic strings here; no shell is involved.
         config='[features]\nimage_generation = true\n\n[mcp_servers.compositor]\ncommand = '+json.dumps(command)+'\nargs = '+json.dumps(args)+'\nrequired = true\n\n[mcp_servers.compositor.env]\nCOMPOSITOR_DATA = '+json.dumps(str(self.ws.settings.root))+'\n'
+        config=config.replace('required = true\n','required = true\ndefault_tools_approval_mode = "approve"\n')
+        if os.name=='nt': config+='\n[windows]\nsandbox = "unelevated"\n'
         (self.home/'config.toml').write_text(config,encoding='utf-8')
 
     def rpc(self,method,params=None,callback=None):
@@ -56,14 +66,19 @@ class ChatSession(QObject):
     def write(self,body): self.proc.write((json.dumps(body,ensure_ascii=False)+'\n').encode())
     def initialize(self): self.rpc('initialize',{'clientInfo':{'name':'compositor_windows','title':'Compositor','version':'0.1.0'},'capabilities':{'experimentalApi':True}},self.initialized_response)
     def initialized_response(self,result):
-        self.write({'method':'initialized','params':{}}); self.initialized=True; self.rpc('account/read',{'refreshToken':False},self.account_response); self.rpc('model/list',{},self.models_response)
+        self.write({'method':'initialized','params':{}}); self.initialized=True
+        if os.name=='nt':
+            self.status.emit('Preparing ChatGPT tools…'); self.rpc('windowsSandbox/setupStart',{'mode':'unelevated'})
+        else: self.discover_account()
+    def discover_account(self):
+        self.rpc('account/read',{'refreshToken':False},self.account_response); self.rpc('model/list',{},self.models_response)
     def models_response(self,result):
         self.model_options=result.get('data',[])
-        available=next((m for m in self.model_options if m.get('isDefault')),None) or next(iter(self.model_options),{})
-        self.model=available.get('model') or available.get('id')
+        self.model=self.ws.settings.values.get('chat_model','gpt-6-sol')
         self.models_changed.emit()
     def account_response(self,result):
         self.account_checked=True; self.account=result.get('account'); self.status.emit(('Signed in · '+str(self.account.get('planType','ChatGPT'))) if self.account else 'Sign in to use ChatGPT')
+        self.account_changed.emit()
         self.ready.emit()
         waiting,self.after_ready=self.after_ready,[]
         for fn in waiting: fn()
@@ -77,12 +92,29 @@ class ChatSession(QObject):
         elif result.get('verificationUrl'): self.display.emit(html.escape(result['verificationUrl']+' · '+result.get('userCode','')))
     def logout(self): self.rpc('account/logout',{},lambda _:self.account_response({'account':None}))
 
-    def send_message(self,text):
-        if not self.initialized: self.after_ready.append(lambda:self.send_message(text)); return
+    def send_generation(self,prepared):
+        if self.busy or self.generation_waiting: raise ValueError('Wait for the current ChatGPT request or stop it before generating another image')
+        if not self.initialized or not self.account_checked:
+            self.generation_waiting=True
+            def after_connection():
+                self.generation_waiting=False
+                try: self.send_generation(prepared)
+                except Exception as error: self.status.emit(str(error)); self.display.emit(html.escape(str(error)))
+            self.after_ready.append(after_connection); self.status.emit('Connecting to ChatGPT…')
+            return {'route':'chatgpt','status':'connecting','documentId':prepared['documentId']}
+        if not self.account:
+            self.login(); raise ValueError('Finish signing in to ChatGPT, then choose Generate again')
+        text=prepared['userPrompt']; self.send_message(text,generation=prepared)
+        self.display.emit('<b>You</b><br>'+html.escape(text).replace('\n','<br>'))
+        return {'route':'chatgpt','status':'requested','documentId':prepared['documentId']}
+
+    def send_message(self,text,generation=None):
+        if not self.initialized or not self.account_checked: self.after_ready.append(lambda:self.send_message(text,generation)); return
         if self.busy: raise ValueError('Wait for the current reply or stop it before sending another message')
         if not self.account: self.login(); raise ValueError('Finish signing in, then send your message')
-        self.busy=True; self.status.emit('Starting…'); self.active_document=self.ws.active
-        self.source_revision=self.ws.document().revision if self.ws.active else None
+        self.busy=True; self.status.emit('Starting…'); self.requested_generation=copy.deepcopy(generation)
+        self.active_document=generation['documentId'] if generation else self.ws.active
+        self.source_revision=generation['sourceRevision'] if generation else self.ws.document().revision if self.ws.active else None
         self.record('user',text)
         if self.thread: self.start_turn(text); return
         params={'cwd':str(self.work),'approvalPolicy':'on-request','sandbox':'workspace-write','developerInstructions':(Path(__file__).parent/'prompts/editor.md').read_text(encoding='utf-8')}
@@ -95,6 +127,7 @@ class ChatSession(QObject):
     def start_turn(self,text):
         context={'activeDocument':self.active_document}
         if self.active_document: context['document']=self.ws.document(self.active_document).info()
+        if self.requested_generation: context['preparedGeneration']=self.requested_generation
         params={'threadId':self.thread,'input':[{'type':'text','text':text+'\n\nCurrent editor context:\n'+json.dumps(context,ensure_ascii=False)}]}
         if self.model: params['model']=self.model
         self.rpc('turn/start',params,self.turn_started)
@@ -120,7 +153,10 @@ class ChatSession(QObject):
     def read_error(self): self.last_stderr=bytes(self.proc.readAllStandardError()).decode(errors='replace')[-1800:]
 
     def notification(self,method,p):
-        if method=='account/login/completed':
+        if method=='windowsSandbox/setupCompleted':
+            if p.get('success'): self.discover_account()
+            else: self.status.emit('ChatGPT tools could not be prepared: '+str(p.get('error') or 'Unknown setup error'))
+        elif method=='account/login/completed':
             if p.get('success'): self.rpc('account/read',{'refreshToken':False},self.account_response)
             else: self.status.emit(p.get('error') or 'Sign-in cancelled')
         elif method=='account/updated': self.rpc('account/read',{'refreshToken':False},self.account_response)
@@ -132,8 +168,8 @@ class ChatSession(QObject):
         elif method=='item/started':
             item=p.get('item',{})
             if item.get('type')=='imageGeneration':
-                source=self.ws.prepared_generation
-                if source and source['created']>=self.turn_started_at: self.native_sources[item['id']]=dict(source)
+                requested=getattr(self,'requested_generation',None); source=requested or self.ws.prepared_generation
+                if source and (requested or source['created']>=self.turn_started_at): self.native_sources[item['id']]=copy.deepcopy(source)
                 self.status.emit('Generating an image with your subscription…')
             elif item.get('type') in ('mcpToolCall','dynamicToolCall'): self.status.emit('Editing · '+item.get('tool','Compositor'))
         elif method=='item/completed':
@@ -144,7 +180,8 @@ class ChatSession(QObject):
                 self.display.emit('<b>ChatGPT</b><br>'+html.escape(text).replace('\n','<br>')); self.record('assistant',text)
             elif kind=='imageGeneration': self.native_image(item)
         elif method=='turn/completed':
-            self.busy=False; self.turn=None; turn=p.get('turn',{}); error=turn.get('error'); self.status.emit(error.get('message') if error else ('Stopped' if turn.get('status')=='interrupted' else 'Ready'))
+            self.questions_cleared.emit()
+            self.busy=False; self.turn=None; self.requested_generation=None; turn=p.get('turn',{}); error=turn.get('error'); self.status.emit(error.get('message') if error else ('Stopped' if turn.get('status')=='interrupted' else 'Ready'))
         elif method=='error': self.status.emit(str(p.get('message') or p.get('error','ChatGPT error')))
 
     def native_image(self,item):
@@ -174,20 +211,11 @@ class ChatSession(QObject):
         except Exception as e: self.display.emit('Could not import the generated candidate: '+html.escape(str(e)))
 
     def server_request(self,message):
-        method=message['method']; p=message.get('params',{}); result={}
-        if method in ('item/commandExecution/requestApproval','item/fileChange/requestApproval'):
-            text=p.get('command') or p.get('reason') or 'ChatGPT wants to change files outside the editor.'
-            answer=QMessageBox.question(self.owner,'ChatGPT action',str(text),QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No)
-            result={'decision':'accept' if answer==QMessageBox.StandardButton.Yes else 'decline'}
-        elif method=='item/tool/requestUserInput' or method=='tool/requestUserInput':
-            answers={}
-            for question in p.get('questions',[]):
-                answer,ok=QInputDialog.getText(self.owner,'ChatGPT',question.get('question',''))
-                answers[question['id']]={'answers':[answer] if ok else []}
-            result={'answers':answers}
-        elif method=='item/permissions/requestApproval': result={'permissions':{},'scope':'turn'}
-        else:
-            self.write({'id':message['id'],'error':{'code':-32601,'message':'This editor does not support '+method}}); return
+        # Questions belong in the panel. A background reply must never open a modal
+        # window or capture the user's keyboard focus in another application.
+        self.question.emit(message); self.status.emit('Your answer is needed in ChatGPT')
+
+    def answer_request(self,message,result):
         self.write({'id':message['id'],'result':result})
 
     def record(self,role,text):

@@ -137,7 +137,10 @@ class Document:
             kind=a.get('kind','raster')
             if kind not in ('raster','text','shape','gradient','adjustment','group'): raise ValueError('Unknown layer kind')
             im=Image.new('RGBA',size,a.get('color',(0,0,0,0))) if kind=='raster' else None
-            self.add(Layer(name=a.get('name',kind.title()),kind=kind,image=im,x=a.get('x',0),y=a.get('y',0),params=copy.deepcopy(a.get('params',{})),parent=a.get('parent')))
+            layer=Layer(name=a.get('name',kind.title()),kind=kind,image=im,x=a.get('x',0),y=a.get('y',0),params=copy.deepcopy(a.get('params',{})),parent=a.get('parent'))
+            for key in ('visible','locked','opacity','blend','sx','sy','angle','clipping','effects'):
+                if key in a: setattr(layer,key,copy.deepcopy(a[key]))
+            self.add(layer)
         elif op=='import_image':
             file=Path(a['path']).resolve()
             with Image.open(file) as source: im=ImageOps.exif_transpose(source).convert('RGBA')

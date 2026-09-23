@@ -405,6 +405,9 @@ class Editor(QMainWindow):
         for other in (self.generation_dock,self.chat_dock,self.production_dock):
             if other is not dock: other.hide()
         dock.show(); dock.raise_(); self.resizeDocks([dock,self.layer_dock],[360,300],Qt.Orientation.Horizontal)
+        if dock is self.chat_dock and (self.ws.settings.root/'chat/codex').exists():
+            try: self.ensure_chat()
+            except RuntimeError: pass
 
     def dock(self,title,widget):
         dock=QDockWidget(title,self); dock.setWidget(widget); dock.setMinimumWidth(300); dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable); self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,dock)
@@ -443,6 +446,8 @@ class Editor(QMainWindow):
 
     def build_generation(self):
         panel=QWidget(); layout=QVBoxLayout(panel); layout.setSpacing(10); self.prompt=QPlainTextEdit(); self.prompt.setPlaceholderText('Describe an image or the change you want…'); self.prompt.setFixedHeight(130); layout.addWidget(self.prompt)
+        from .creative_ui import GenerationRoutePicker
+        layout.insertWidget(0,GenerationRoutePicker(self.ws))
         row=QHBoxLayout(); row.addWidget(QLabel('Style')); self.gen_style=QComboBox(); self.gen_style.setAccessibleName('Generation style'); row.addWidget(self.gen_style,1)
         style_button=icon_button('effects','Edit styles',self.edit_generation_style); row.addWidget(style_button); layout.addLayout(row)
         self.gen_context=QLabel(); self.gen_context.setWordWrap(True); layout.addWidget(self.gen_context)
@@ -460,9 +465,11 @@ class Editor(QMainWindow):
 
     def build_chat(self):
         panel=QWidget(); layout=QVBoxLayout(panel); top=QHBoxLayout(); self.login_button=QPushButton('Sign in with ChatGPT'); self.login_button.clicked.connect(self.chat_login); top.addWidget(self.login_button)
-        logout=QPushButton('Sign out'); logout.clicked.connect(lambda:self.chat.logout() if self.chat else None); top.addWidget(logout); layout.addLayout(top)
+        self.logout_button=QPushButton('Sign out'); self.logout_button.clicked.connect(lambda:self.chat.logout() if self.chat else None); self.logout_button.hide(); top.addWidget(self.logout_button); layout.addLayout(top)
+        self.chat_account=QLabel(); self.chat_account.setWordWrap(True); layout.addWidget(self.chat_account)
         self.chat_status=QLabel('Not connected'); self.chat_status.setWordWrap(True); layout.addWidget(self.chat_status)
-        self.chat_model=QComboBox(); self.chat_model.addItem('Account default',None); self.chat_model.currentIndexChanged.connect(self.choose_chat_model); layout.addWidget(self.chat_model)
+        self.chat_model=QComboBox(); self.chat_model.addItem('GPT-6-Sol','gpt-6-sol'); self.chat_model.currentIndexChanged.connect(self.choose_chat_model); layout.addWidget(self.chat_model)
+        self.chat_questions=QWidget(); self.chat_questions_layout=QVBoxLayout(self.chat_questions); self.chat_questions.hide(); layout.addWidget(self.chat_questions)
         self.chat_log=QTextBrowser(); self.chat_log.setOpenExternalLinks(True); layout.addWidget(self.chat_log)
         self.chat_history_limit=100; self.load_chat_history()
         earlier=QPushButton('Load earlier messages'); earlier.clicked.connect(self.earlier_chat); layout.addWidget(earlier)
@@ -540,7 +547,7 @@ class Editor(QMainWindow):
                 self.jobs.addItem(item)
                 if job['id']==selected: self.jobs.setCurrentItem(item)
             if not self.jobs.currentItem() and self.jobs.count(): self.jobs.setCurrentRow(0)
-            self.gen_provider_label.setText(f"API provider: {self.ws.settings.values['provider']} · {self.ws.settings.values['model']}")
+            self.gen_provider_label.setText('Uses the account signed in through the ChatGPT panel.' if self.ws.settings.values['generationRoute']=='chatgpt' else f"API provider: {self.ws.settings.values['provider']} · {self.ws.settings.values['model']}")
             chosen=self.gen_style.currentData(); self.gen_style.blockSignals(True); self.gen_style.clear(); self.gen_style.addItem('No style',None)
             for style in self.ws.styles.list(): self.gen_style.addItem(style['name'],style['id'])
             linked=self.ws.projects.for_document(self.ws.active)
@@ -709,6 +716,14 @@ class Editor(QMainWindow):
         paths,_=QFileDialog.getOpenFileNames(self,'Reference images','','Images (*.png *.jpg *.jpeg *.webp)'); self.references=paths; self.ref_label.setText(f'{len(paths)} selected')
     def generation_args(self): return {'prompt':self.prompt.toPlainText(),'kind':self.gen_kind.currentData(),'size':self.gen_size.currentText(),'references':self.references,'styleId':self.gen_style.currentData()}
     def generate(self): self.run('generate',self.generation_args())
+    def generate_with_chat(self,document,args):
+        self.show_panel(self.chat_dock)
+        try: chat=self.ensure_chat()
+        except RuntimeError:
+            self.chat_login(); raise ValueError('Set up ChatGPT in the chat panel, then choose Generate again')
+        if chat.busy or chat.generation_waiting: raise ValueError('Wait for the current ChatGPT request or stop it before generating another image')
+        prepared=self.ws.dispatch('prepare_generation',{**args,'documentId':document.id})
+        return chat.send_generation(prepared)
     def edit_generation_style(self):
         from .creative_ui import StyleDialog
         linked=self.ws.projects.for_document(self.ws.active); dialog=StyleDialog(self,linked[0] if linked else None,self.gen_style.currentData())
@@ -740,12 +755,15 @@ class Editor(QMainWindow):
         key=QLineEdit(); key.setEchoMode(QLineEdit.EchoMode.Password); key.setPlaceholderText('Leave blank to keep the saved key'); form.addRow('API key',key)
         endpoint=QLineEdit(s.values['openai_url']); form.addRow('OpenAI-compatible URL',endpoint)
         studio=QLineEdit(s.values.get('studio_url','')); studio.setPlaceholderText('Optional local production service'); form.addRow('Project connector URL',studio)
+        working=QLineEdit(s.values.get('chat_working_directory','')); working.setPlaceholderText('Compositor manages this folder automatically'); form.addRow('ChatGPT working folder',working)
+        folder_note=QLabel('An optional folder for files created during conversations. Changes take effect when ChatGPT reconnects.'); folder_note.setWordWrap(True); form.addRow(folder_note)
+        external=QPushButton('Copy external editor connection'); external.clicked.connect(self.copy_external_connection); form.addRow('External AI tools',external)
         note=QLabel('API keys are stored in Windows Credential Manager.\nChatGPT sign-in is separate and uses your subscription.'); note.setWordWrap(True); form.addRow(note)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel); buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject); form.addRow(buttons)
         if dialog.exec()==QDialog.DialogCode.Accepted:
             try:
                 if key.text(): s.set_key(provider.currentText(),key.text())
-                self.run('settings',{'provider':provider.currentText(),'model':model.text(),'openai_url':endpoint.text(),'studio_url':studio.text()})
+                self.run('settings',{'provider':provider.currentText(),'model':model.text(),'openai_url':endpoint.text(),'studio_url':studio.text(),'chat_working_directory':working.text().strip()})
             except Exception as e: QMessageBox.warning(self,'Settings',str(e))
     def open_studio(self):
         url=self.ws.settings.values.get('studio_url')
@@ -775,14 +793,60 @@ class Editor(QMainWindow):
             from .chat import ChatSession
             self.chat=ChatSession(self.ws,self); self.chat.display.connect(self.chat_log.append); self.chat.status.connect(self.chat_status.setText); self.chat.stream.connect(self.show_chat_stream)
             self.chat.models_changed.connect(self.populate_chat_models)
+            self.chat.account_changed.connect(self.update_chat_account); self.chat.question.connect(self.show_chat_question)
+            self.chat.questions_cleared.connect(self.clear_chat_questions)
+            self.update_chat_account()
         return self.chat
+    def update_chat_account(self):
+        chat=self.chat; checked=bool(chat and chat.account_checked); account=chat.account if checked else None
+        self.login_button.setVisible(checked and not account); self.logout_button.setVisible(bool(account))
+        self.chat_account.setText((account.get('email') or 'Signed in to ChatGPT') if account else ('Checking your account…' if not checked else ''))
+
+    def copy_external_connection(self):
+        from .chat import editor_mcp_config
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(json.dumps({'mcpServers':{'compositor':editor_mcp_config(self.ws.settings)}},indent=2))
+
+    def show_chat_question(self,message):
+        box=QWidget(); form=QVBoxLayout(box); p=message.get('params',{}); method=message['method']; inputs=[]
+        def answer(result):
+            self.chat.answer_request(message,result); box.deleteLater()
+        if method in ('tool/requestUserInput','item/tool/requestUserInput'):
+            for question in p.get('questions',[]):
+                label=QLabel(question.get('question','')); label.setWordWrap(True); form.addWidget(label)
+                options=question.get('options') or []
+                field=QComboBox() if options else QLineEdit()
+                if options:
+                    field.addItem('Choose an answer',None)
+                    for option in options: field.addItem(option['label'],option['label'])
+                form.addWidget(field); inputs.append((question['id'],field))
+            send=QPushButton('Answer'); form.addWidget(send)
+            def submit():
+                values={key:field.currentData() if isinstance(field,QComboBox) else field.text() for key,field in inputs}
+                if all(values.values()): answer({'answers':{key:{'answers':[value]} for key,value in values.items()}})
+            send.clicked.connect(submit)
+        elif method in ('item/commandExecution/requestApproval','item/fileChange/requestApproval','item/permissions/requestApproval'):
+            label=QLabel(str(p.get('command') or p.get('reason') or 'Allow ChatGPT to change files outside the editor?')); label.setWordWrap(True); form.addWidget(label)
+            for title,decision in [('Allow','accept'),('Decline','decline')]:
+                result=({'permissions':p.get('permissions',{}) if decision=='accept' else {},'scope':'turn'} if method=='item/permissions/requestApproval' else {'decision':decision})
+                button=QPushButton(title); button.clicked.connect(lambda checked=False,value=result:answer(value)); form.addWidget(button)
+        else:
+            self.chat.write({'id':message['id'],'error':{'code':-32601,'message':'Unsupported editor request: '+method}}); box.deleteLater(); return
+        self.chat_questions_layout.addWidget(box); self.chat_questions.show()
+    def clear_chat_questions(self):
+        while self.chat_questions_layout.count():
+            item=self.chat_questions_layout.takeAt(0)
+            if item.widget(): item.widget().deleteLater()
+        self.chat_questions.hide()
     def populate_chat_models(self):
         self.chat_model.blockSignals(True); self.chat_model.clear()
         for model in self.chat.model_options:
             value=model.get('model') or model.get('id'); self.chat_model.addItem(model.get('displayName') or value,value)
-        self.chat_model.setCurrentIndex(max(0,self.chat_model.findData(self.chat.model))); self.chat_model.blockSignals(False)
+        if self.chat_model.findData(self.chat.model)<0: self.chat_model.addItem(self.chat.model,self.chat.model)
+        self.chat_model.setCurrentIndex(self.chat_model.findData(self.chat.model)); self.chat_model.blockSignals(False)
     def choose_chat_model(self,index):
-        if getattr(self,'chat',None): self.chat.model=self.chat_model.itemData(index)
+        if getattr(self,'chat',None):
+            self.chat.model=self.chat_model.itemData(index); self.ws.settings.values['chat_model']=self.chat.model; self.ws.settings.save()
     def load_chat_history(self):
         from collections import deque
         path=self.ws.settings.root/'chat/conversation.jsonl'

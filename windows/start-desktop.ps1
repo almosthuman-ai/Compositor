@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Executable)
+param([string]$Executable, [switch]$Background)
 $ErrorActionPreference = 'Stop'
 if (-not $Executable) {
     $pointer = Join-Path $env:LOCALAPPDATA 'Compositor/installed-executable.txt'
@@ -9,7 +9,9 @@ if (-not $Executable) {
 $Executable = [IO.Path]::GetFullPath($Executable)
 if (-not (Test-Path -LiteralPath $Executable)) { throw 'The installed executable is missing.' }
 $taskName = 'Compositor Desktop'
-$action = New-ScheduledTaskAction -Execute $Executable -WorkingDirectory (Split-Path -Parent $Executable)
+$launch = @{ Execute=$Executable; WorkingDirectory=(Split-Path -Parent $Executable) }
+if ($Background) { $launch.Argument='--background' }
+$action = New-ScheduledTaskAction @launch
 $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null

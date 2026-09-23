@@ -2,6 +2,7 @@
 import base64, json, urllib.request, urllib.error
 from typing import Literal
 from mcp.server.mcpserver import MCPServer, Image
+from mcp.types import ToolAnnotations
 from .settings import Settings
 
 server=MCPServer('Compositor')
@@ -13,12 +14,12 @@ def call(action,args=None):
     except urllib.error.HTTPError as e: raise ValueError(json.load(e).get('error','Editor request failed')) from None
     except urllib.error.URLError: raise ValueError('Open Compositor before using its editor tools') from None
 
-@server.tool()
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True,destructiveHint=False))
 def compositor_get_workspace() -> dict:
     """Read open documents, exact layers, revisions, current selection, jobs and provider readiness. No credentials are returned."""
     return call('state')
 
-@server.tool()
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True,destructiveHint=False))
 def compositor_list_fonts() -> dict:
     """List installed font families and styles available to text layers. Use fontFamily, fontStyle and size in text params; no font file path is required."""
     return call('fonts')
@@ -43,7 +44,7 @@ def compositor_edit(operation:Literal['add_layer','import_image','select_layer',
     """Edit the canonical document with undo. Read first; pass expectedRevision to reject stale edits. Layer kinds: raster/text/shape/gradient/adjustment/group. update_layer takes layerId plus name, visible, locked, opacity 0–1, blend, x/y, sx/sy, angle, parent, clipping, params or effects. Brush points are [x,y,pressure?], with size/color/hardness/opacity. Selection kinds: rectangle/ellipse/polygon/wand/all/none/invert/expand/contract/feather/layer_alpha; mode replace/add/subtract/intersect. Regions use x/y/width/height. Filter kind: exposure/levels/curves/hue_saturation/invert/gaussian_blur/sharpen/noise/motion_blur/gradient_map/grayscale/auto_levels. Text params: text/fontFamily/fontStyle/size/color/spacing/align. compositor_list_fonts supplies available families and styles; legacy font paths remain supported. Shape params: shape rectangle/ellipse/rounded/line, width/height/color/stroke/strokeWidth. Every successful operation returns the new revision and layers."""
     return call('edit',locals())
 
-@server.tool()
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True,destructiveHint=False))
 def compositor_view_image(documentId:str|None=None,region:dict|None=None,maxDimension:int|None=None) -> Image:
     """Inspect the exact rendered composition or original-coordinate region x/y/width/height. Default preserves pixel dimensions; optional maxDimension is an explicit overview thumbnail."""
     result=call('capture',locals()); return Image(data=base64.b64decode(result['data']),format='jpeg')
@@ -63,7 +64,7 @@ def compositor_styles(operation:Literal['list','save']='list',args:dict|None=Non
     """List reusable style profiles or save a custom style: name/prefix/suffix and optional references [{path,label}]. To update a custom style, pass its id. Built-in styles are customized as new copies. Project styles are snapshots changed through compositor_production."""
     return call('styles' if operation=='list' else 'save_style',args)
 
-@server.tool()
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True,destructiveHint=False))
 def compositor_preview_generation(prompt:str,kind:Literal['generate','edit','patch']='generate',documentId:str|None=None,styleId:str|None=None,references:list|None=None) -> dict:
     """Inspect the exact assembled prompt, selected cast, style and ordered references without generating or charging. Project pages automatically use their own style and selected character references. Standalone documents accept styleId."""
     return call('preview_generation',{k:v for k,v in locals().items() if v is not None})
@@ -74,11 +75,11 @@ def compositor_prepare_generation(kind:Literal['generate','edit','patch']='edit'
     return call('prepare_generation',{k:v for k,v in locals().items() if v is not None})
 
 @server.tool()
-def compositor_generate(prompt:str,kind:Literal['generate','edit','patch']='generate',documentId:str|None=None,provider:str|None=None,model:str|None=None,box:dict|None=None,references:list|None=None,size:str='1024x1024',autoApply:bool=False,styleId:str|None=None) -> dict:
-    """Start API-key image generation using configured provider. Project pages automatically include their style, direction and selected characters. Standalone documents accept styleId. edit sends current composite; patch sends ONLY selected region plus references. Returns durable job with assembled prompt and creative context. Sources and candidates are retained. Auto-apply rejects changed documents. Subscription-native generation is available through embedded ChatGPT when its account supports it."""
+def compositor_generate(prompt:str,kind:Literal['generate','edit','patch']='generate',documentId:str|None=None,provider:str|None=None,model:str|None=None,box:dict|None=None,references:list|None=None,size:str='1024x1024',autoApply:bool=False,styleId:str|None=None,route:Literal['api','chatgpt']='api') -> dict:
+    """Start image generation. route api (default) uses the configured API provider; route chatgpt requests native subscription generation through the embedded conversation and returns its connecting/requested status. Project pages automatically include their style, direction and selected characters. Standalone documents accept styleId. edit sends current composite; patch sends ONLY selected region plus references. Returns durable job with assembled prompt and creative context. Sources and candidates are retained. Auto-apply rejects changed documents. Subscription-native generation is available through embedded ChatGPT when its account supports it."""
     return call('generate',{k:v for k,v in locals().items() if v is not None})
 
-@server.tool()
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True,destructiveHint=False))
 def compositor_generation_job(jobId:str) -> dict:
     """Read saved source, candidate path, actual dimensions, provider error and application status."""
     return call('job',locals())
@@ -88,7 +89,7 @@ def compositor_apply_generation(jobId:str,documentId:str|None=None) -> dict:
     """Apply a reviewed candidate as an editable layer only if its exact source document is unchanged."""
     return call('apply_generation',locals())
 
-@server.tool()
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True,destructiveHint=False))
 def compositor_project_list() -> list:
     """List projects through the configured optional production connector."""
     return call('connector_projects')

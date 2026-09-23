@@ -31,12 +31,26 @@ class Workspace(QObject):
     def notify(self): self.changed.emit(); self.autosave.start()
 
     def state(self):
+        chat=getattr(self.window,'chat',None)
         return {'service':'compositor','activeDocument':self.active,'documents':[d.info() for d in self.documents.values()],
-                'view':self.view,'jobs':list(self.generation.jobs.values()),'settings':self.settings.public(),'production':self.projects.info()}
+                'view':self.view,'jobs':list(self.generation.jobs.values()),'settings':self.settings.public(),'production':self.projects.info(),
+                'chat':{'connected':bool(chat and chat.initialized),'signedIn':bool(chat and chat.account),'busy':bool(chat and (chat.busy or chat.generation_waiting)),'model':chat.model if chat else None}}
 
     def dispatch(self,action,args=None):
         a=args or {}
         if action=='state': return self.state()
+        if action=='chat':
+            if not self.window: raise ValueError('Open Compositor to use ChatGPT')
+            chat=self.window.ensure_chat(); operation=a.get('operation','status')
+            if operation=='send':
+                text=str(a.get('text','')).strip()
+                if not text: raise ValueError('Write a message first')
+                chat.send_message(text)
+                import html
+                self.window.chat_log.append('<b>You</b><br>'+html.escape(text).replace('\n','<br>'))
+            elif operation=='stop': chat.interrupt()
+            elif operation!='status': raise ValueError('Unknown chat operation')
+            return {'connected':chat.initialized,'signedIn':bool(chat.account),'accountChecked':chat.account_checked,'busy':chat.busy or chat.generation_waiting,'model':chat.model,'workingDirectory':str(chat.work),'status':self.window.chat_status.text(),'accountLabel':self.window.chat_account.text(),'signInVisible':not self.window.login_button.isHidden(),'signOutVisible':not self.window.logout_button.isHidden()}
         if action=='fonts':
             from .fonts import catalog
             return {'families':catalog()}
@@ -80,7 +94,8 @@ class Workspace(QObject):
         if action=='view':
             self.view.update(a); self.changed.emit(); return self.view
         if action=='settings':
-            allowed={'provider','model','quality','imageSize','aspectRatio','studio_url','openai_url','gemini_url','codex_path'}
+            allowed={'provider','model','quality','imageSize','aspectRatio','studio_url','openai_url','gemini_url','codex_path','generationRoute','chat_model','chat_working_directory'}
+            if 'generationRoute' in a and a['generationRoute'] not in ('api','chatgpt'): raise ValueError('Choose API provider or ChatGPT subscription')
             for k,v in a.items():
                 if k not in allowed: raise ValueError(f'Unsupported setting {k}')
                 self.settings.values[k]=v
@@ -136,8 +151,14 @@ class Workspace(QObject):
                 references.append({**ref,'path':str(target)})
             source_path=str(folder/'source.png') if kind!='generate' else None
             self.prepared_generation={'documentId':d.id,'sourceRevision':d.revision,'kind':kind,'box':box,'sourcePath':source_path,'created':time.time(),'prompt':request['prompt'],'userPrompt':request['userPrompt'],'creativeContext':request['creativeContext'],'references':references,'inputs':([source_path] if source_path else [])+[r['path'] for r in references]}
+            self.prepared_generation['requestedSize']=a.get('size')
             atomic_json(folder/'source.json',self.prepared_generation); return self.prepared_generation
         if action=='generate':
+            route=a.get('route') or self.settings.values['generationRoute']
+            if route=='chatgpt':
+                if not self.window: raise ValueError('Open the Compositor editor to generate with ChatGPT')
+                return self.window.generate_with_chat(d,a)
+            if route!='api': raise ValueError('Choose API provider or ChatGPT subscription')
             result=self.generation.submit(d,self.creative_request(d,a)); self.changed.emit(); return result
         if action=='apply_generation':
             result=self.generation.apply(d,a['jobId']); self.notify(); return result

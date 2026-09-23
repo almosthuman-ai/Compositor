@@ -10,7 +10,7 @@ def main():
     for key in ('QT_PLUGIN_PATH','QT_QPA_PLATFORM_PLUGIN_PATH','QML2_IMPORT_PATH'):
         os.environ.pop(key,None)
     from PySide6.QtWidgets import QApplication, QMessageBox
-    from PySide6.QtCore import QTimer, QLockFile
+    from PySide6.QtCore import QTimer, QLockFile, Qt
     from compositor.settings import Settings
     from compositor.workspace import Workspace
     from compositor.server import start_server
@@ -24,7 +24,7 @@ def main():
         try:
             for path in sys.argv[1:]:
                 if not path.startswith('--'): call('open',{'path':str(Path(path).resolve())})
-            call('show')
+            if '--background' not in sys.argv: call('show')
         except Exception as e: QMessageBox.warning(None,'Compositor',str(e))
         return
     ws=Workspace(settings)
@@ -36,6 +36,7 @@ def main():
     if paths:
         for path in paths: window.run('open',{'path':path})
     if not ws.documents: ws.dispatch('new',{'title':'Untitled','width':1536,'height':1024})
+    if '--background' in sys.argv: window.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
     window.show(); QTimer.singleShot(100,window.canvas.fit)
     result=app.exec(); server.shutdown(); ws.generation.pool.shutdown(wait=False); sys.exit(result)
 

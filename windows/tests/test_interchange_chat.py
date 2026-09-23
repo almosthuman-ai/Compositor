@@ -51,7 +51,7 @@ def test_native_subscription_candidate_uses_prepared_crop_and_preserves_original
 def test_login_waits_for_account_discovery():
     events=[]
     session=SimpleNamespace(account=None,after_ready=[lambda:events.append('deferred')],
-                            ready=SimpleNamespace(emit=lambda:events.append('ready')),
+                            ready=SimpleNamespace(emit=lambda:events.append('ready')),account_changed=SimpleNamespace(emit=lambda:None),
                             status=SimpleNamespace(emit=lambda text:events.append(text)))
     ChatSession.account_response(session,{'account':{'planType':'plus'}})
     assert session.account['planType']=='plus'

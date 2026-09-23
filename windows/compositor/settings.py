@@ -17,6 +17,8 @@ class Settings:
         self.values.setdefault('provider','openai'); self.values.setdefault('model','gpt-image-1')
         self.values.setdefault('openai_url','https://api.openai.com/v1'); self.values.setdefault('gemini_url','https://generativelanguage.googleapis.com/v1beta')
         self.values.setdefault('studio_url',''); self.values.setdefault('port',47841)
+        self.values.setdefault('generationRoute','api')
+        self.values.setdefault('chat_model','gpt-6-sol')
         token_path=self.root/'operator-token'
         if not token_path.exists(): token_path.write_text(secrets.token_urlsafe(32),encoding='utf-8')
         self.token=token_path.read_text(encoding='utf-8').strip()
