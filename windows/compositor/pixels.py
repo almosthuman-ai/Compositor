@@ -75,8 +75,10 @@ def content(layer):
     if layer.kind == 'shape':
         p = layer.params
         im = Image.new('RGBA', (int(p.get('width', 300)), int(p.get('height',200))))
-        d = ImageDraw.Draw(im); sw = int(p.get('strokeWidth', 2)); inset = sw//2
-        box = (inset,inset,im.width-1-inset,im.height-1-inset)
+        d = ImageDraw.Draw(im); sw = int(p.get('strokeWidth', 2))
+        # Pillow draws outlines inside these bounds. Insetting again shrinks the
+        # shape and reverses the bounds of ordinary one- or two-pixel rules.
+        box = (0,0,im.width-1,im.height-1)
         kw = dict(fill=p.get('color','#ffffff'), outline=p.get('stroke'), width=max(1,sw))
         if p.get('shape') == 'ellipse': d.ellipse(box, **kw)
         elif p.get('shape') == 'line': d.line(box, fill=p.get('color','#ffffff'),width=max(1,sw))

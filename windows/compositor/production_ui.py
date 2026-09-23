@@ -4,7 +4,7 @@ import json
 from PySide6.QtCore import Qt, QRectF, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut, QPainter
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QPushButton,QComboBox,QListWidget,QListWidgetItem,
-    QLineEdit,QPlainTextEdit,QLabel,QTextBrowser,QFileDialog,QInputDialog,QDialog,QCheckBox,QGraphicsView,QGraphicsScene,QMessageBox,QScrollArea,QTabWidget)
+    QLineEdit,QPlainTextEdit,QLabel,QTextBrowser,QFileDialog,QInputDialog,QDialog,QCheckBox,QGraphicsView,QGraphicsScene,QMessageBox,QScrollArea,QTabWidget,QMenu)
 from .chrome import icon_button, EditorComboBox as QComboBox
 
 
@@ -17,11 +17,14 @@ class ProductionPanel(QWidget):
             except (ValueError,KeyError): pass
         self.draft_timer=QTimer(self); self.draft_timer.setSingleShot(True); self.draft_timer.setInterval(500); self.draft_timer.timeout.connect(self.save_drafts)
         root=QVBoxLayout(self); root.setContentsMargins(10,10,10,10); row=QHBoxLayout()
-        for title,fn in [('New project',self.create),('Open…',self.open),('Save…',self.save)]:
+        for title,fn in [('New project',self.create),('Open…',self.open),('Save',self.save)]:
             button=QPushButton(title); button.clicked.connect(fn); row.addWidget(button)
+        menu=QMenu(self); menu.addAction('Save as…',lambda:self.save(save_as=True)); menu.addAction('Open a copy…',lambda:self.open(as_copy=True))
+        more=QPushButton('⋯'); more.setFixedWidth(32); more.setAccessibleName('Project file options'); more.setToolTip('Project file options'); more.setMenu(menu); row.addWidget(more)
         root.addLayout(row); self.empty=QLabel('Create an artwork, comic or book.\n\nKeep its pages, references and writing together.'); self.empty.setWordWrap(True); self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter); root.addWidget(self.empty,1)
         self.body=QWidget(); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame); scroll.setWidget(self.body); root.addWidget(scroll,1); layout=QVBoxLayout(self.body); layout.setContentsMargins(0,0,4,0); layout.setSpacing(8)
         self.projects=QComboBox(); self.projects.currentIndexChanged.connect(self.select_project); layout.addWidget(self.projects)
+        self.file_status=QLabel(); self.file_status.setWordWrap(True); self.file_status.setStyleSheet('color:#aaa'); layout.addWidget(self.file_status)
         self.pages=QListWidget(); self.pages.setMinimumHeight(90); self.pages.setMaximumHeight(160); self.pages.itemClicked.connect(self.select_page); layout.addWidget(self.pages,1)
         row=QHBoxLayout()
         for name,title,fn in [('plus','Add page',self.add_page),('up','Move page earlier',lambda:self.reorder(-1)),('down','Move page later',lambda:self.reorder(1)),('delete','Remove page',self.remove_page)]: row.addWidget(icon_button(name,title,fn))
@@ -64,10 +67,18 @@ class ProductionPanel(QWidget):
         self.refreshing=True
         try:
             self.projects.blockSignals(True); self.projects.clear()
-            for project in self.ws.projects.items.values(): self.projects.addItem(project['title'],project['id'])
+            all_projects=list(self.ws.projects.items.values())
+            for project in all_projects:
+                duplicates=[p for p in all_projects if p['title']==project['title']]
+                saved=self.ws.projects.files.get(project['id'],{}).get('path')
+                label=project['title']
+                if len(duplicates)>1: label+=' · '+(Path(saved).name if saved else f'Working copy {duplicates.index(project)+1}')
+                self.projects.addItem(label,project['id']); self.projects.setItemData(self.projects.count()-1,saved or 'Working copy',Qt.ItemDataRole.ToolTipRole)
             self.projects.setCurrentIndex(max(0,self.projects.findData(self.ws.projects.active))); self.projects.blockSignals(False)
             project=self.project(); self.pages.clear(); self.body.setVisible(project is not None); self.empty.setVisible(project is None)
             if project:
+                saved=self.ws.projects.files.get(project['id'],{}).get('path')
+                self.file_status.setText(Path(saved).name if saved else 'Not saved to a project file'); self.file_status.setToolTip(saved or '')
                 for i,page in enumerate(project['pages']):
                     item=QListWidgetItem(f"{i+1}. {page['title']}"); item.setData(Qt.ItemDataRole.UserRole,page['id']); self.pages.addItem(item)
                     if page['id']==project['activePage']: self.pages.setCurrentItem(item)
@@ -135,13 +146,14 @@ class ProductionPanel(QWidget):
         if self.refreshing or not self.key: return
         ids=[self.cast.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.cast.count()) if self.cast.item(i).checkState()==Qt.CheckState.Checked]
         self.call('update_page',{'pageId':self.key[1],'characterIds':ids})
-    def open(self):
-        path,_=QFileDialog.getOpenFileName(self,'Open project','','Compositor project (*.compbook)')
-        if path: self.call('open',{'path':path})
-    def save(self):
+    def open(self,checked=False,as_copy=False):
+        path,_=QFileDialog.getOpenFileName(self,'Open a copy' if as_copy else 'Open project','','Compositor project (*.compbook)')
+        if path: self.call('open',{'path':path,'asCopy':as_copy})
+    def save(self,checked=False,save_as=False):
         project=self.project()
         if not project or not self.save_all_text(): return
-        path,_=QFileDialog.getSaveFileName(self,'Save portable project',project['title']+'.compbook','Compositor project (*.compbook)')
+        path=self.ws.projects.files.get(project['id'],{}).get('path')
+        if not path or save_as: path,_=QFileDialog.getSaveFileName(self,'Save project',path or project['title']+'.compbook','Compositor project (*.compbook)')
         if path: return self.call('save',{'path':path,'projectId':project['id']})
     def add_page(self):
         if self.project(): self.call('add_page')

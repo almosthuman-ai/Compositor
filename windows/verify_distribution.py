@@ -86,7 +86,7 @@ def main():
             state=tool('compositor_get_workspace',{})
             assert next(d for d in state['documents'] if d['id']==state['activeDocument'])['title']=='Named page'
             tool('compositor_production',{'operation':'save','args':{'projectId':project['id'],'path':str(root/'project.compbook')}})
-            reopened=tool('compositor_production',{'operation':'open','args':{'path':str(root/'project.compbook')}})
+            reopened=tool('compositor_production',{'operation':'open','args':{'path':str(root/'project.compbook'),'asCopy':True}})
             assert reopened['id']!=project['id'] and reopened['pages'][0]['text']=='Portable authored prose'
             assert reopened['style']['id']=='clean-line-comic' and reopened['pages'][0]['characterIds']==[character['id']]
             tool('compositor_production',{'operation':'export','args':{'projectId':project['id'],'path':str(root/'reading.html')}})

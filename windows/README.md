@@ -80,7 +80,7 @@ The Projects panel creates standalone artwork, comics and illustrated books with
 
 A project keeps its own style instructions and copied reference images. Editing a reusable style in the library leaves existing projects unchanged. Character references and identity notes guide generation; inspect the results and refine any inconsistencies.
 
-Projects save locally as you work. **Save** creates a portable `.compbook` containing all pages, editable layers, prose and references. Opening a portable copy creates a separate project, preserving any version already open. Page text drafts survive refreshes, page switches and restarts.
+Projects save locally as you work. **Save** creates a portable `.compbook` containing all pages, editable layers, prose and references, then remembers that file for later saves. **Open** returns to the existing project when the file is unchanged. The project file menu offers **Save as…** and **Open a copy…** for independent versions. If a file has changed outside Compositor, opening it preserves the previous working version as a separate project. Page text drafts survive refreshes, page switches and restarts.
 
 Export a self-contained HTML reading copy or a PDF with artwork and prose. PDF pages keep the artwork's proportions, with any additional writing beneath the image. Lettering composed on the canvas stays in place. **Present** opens a full-screen view with page navigation and an optional two-panel comic layout. Human navigation and MCP selection use the same page. These features work without a connected Studio service.
 

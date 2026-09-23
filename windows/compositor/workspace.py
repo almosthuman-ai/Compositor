@@ -79,7 +79,7 @@ class Workspace(QObject):
             d.execute('add_layer',{'name':'Background','color':a.get('background','#ffffff')}); self.documents[d.id]=d; self.active=d.id; self.notify(); return d.info()
         if action=='open':
             if Path(a['path']).suffix.lower()=='.compbook':
-                result=self.projects.open_bundle(a['path']); self.notify(); return result
+                result=self.projects.open_bundle(a['path'],a.get('asCopy',False)); self.notify(); return result
             d=Document.load(a['path'])
             if d.id in self.documents: self.active=d.id
             else: self.documents[d.id]=d; self.active=d.id

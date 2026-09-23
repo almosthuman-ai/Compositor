@@ -1,6 +1,6 @@
 """Portable production projects over the editor's canonical layered documents."""
 from pathlib import Path
-import copy, json, os, tempfile, uuid, zipfile
+import copy, hashlib, json, os, tempfile, uuid, zipfile
 from PIL import Image, ImageOps
 from .document import Document
 from .settings import atomic_json
@@ -10,6 +10,9 @@ class Projects:
     def __init__(self,workspace):
         self.ws=workspace; self.root=workspace.settings.root/'projects'; self.root.mkdir(exist_ok=True)
         self.items={}; self.active=None; self.saved_revisions={}
+        self.files_path=workspace.settings.root/'project-files.json'
+        try: self.files=json.loads(self.files_path.read_text(encoding='utf-8'))
+        except (OSError,ValueError): self.files={}
         for path in self.root.glob('*/project.json'):
             try:
                 project=json.loads(path.read_text(encoding='utf-8')); self.items[project['id']]=project
@@ -63,8 +66,15 @@ class Projects:
         return {'style':project.get('style'),'story':project['story'],'direction':project['artDirection'],'characters':cast,'references':references,'project_id':project['id'],'page_id':page['id']}
 
     def info(self,project=None):
-        if project is None: return {'activeProject':self.active,'projects':[copy.deepcopy(p) for p in self.items.values()]}
-        return copy.deepcopy(project)
+        if project is None: return {'activeProject':self.active,'projects':[self.info(p) for p in self.items.values()]}
+        return {**copy.deepcopy(project),'savedPath':self.files.get(project['id'],{}).get('path')}
+
+    def bind_file(self,project,path,fingerprint=None):
+        # File ownership is local; portable bundles never acquire machine paths.
+        key=os.path.normcase(str(path))
+        self.files={pid:entry for pid,entry in self.files.items() if os.path.normcase(entry['path'])!=key}
+        self.files[project['id']]={'path':str(path),'sha256':fingerprint or hashlib.sha256(path.read_bytes()).hexdigest()}
+        atomic_json(self.files_path,self.files)
 
     def document(self,project,page):
         document=self.ws.documents.get(page['documentId'])
@@ -109,7 +119,7 @@ class Projects:
             self.items[project['id']]=project
             for _ in range(count): self.add_page(project,{})
             return self.select(project,project['pages'][0])
-        if action=='open': return self.open_bundle(a['path'])
+        if action=='open': return self.open_bundle(a['path'],a.get('asCopy',False))
         project=self.get(a.get('projectId'))
         if action=='get': return self.info(project)
         if action=='select': return self.select(project,self.page(project,a.get('pageId')))
@@ -184,7 +194,10 @@ class Projects:
             if context.get('projectId')!=project['id'] or context.get('characterId')!=character['id']: raise ValueError('This image was made for another character or project')
             if any(r.get('generationId')==job['id'] for r in project['references']): raise ValueError('This image is already a character reference')
             reference=self.add_reference(project,{'path':job['result'],'characterId':character['id']}); reference['generationId']=job['id']
-        elif action=='save': return self.save_bundle(project,a['path'])
+        elif action=='save':
+            path=a.get('path') or self.files.get(project['id'],{}).get('path')
+            if not path: raise ValueError('Choose a file for this project first')
+            return self.save_bundle(project,path)
         elif action=='export': return self.export(project,a['path'])
         elif action=='generate':
             page=self.page(project,a.get('pageId')); self.select(project,page)
@@ -207,6 +220,7 @@ class Projects:
                 for page in project['pages']: archive.write(self.page_file(project,page),'pages/'+page['id']+'.compwin')
                 for reference in project['references']: archive.write(self.folder(project)/reference['file'],reference['file'])
             os.replace(temp,target)
+            self.bind_file(project,target)
             for page in project['pages']:
                 d=self.ws.documents.get(page['documentId'])
                 if d is not None: d.saved_revision=d.revision
@@ -214,7 +228,13 @@ class Projects:
             if temp.exists(): temp.unlink()
         return {'path':str(target),'bytes':target.stat().st_size,'pages':len(project['pages'])}
 
-    def open_bundle(self,path):
+    def open_bundle(self,path,as_copy=False):
+        path=Path(path).resolve(); fingerprint=hashlib.sha256(path.read_bytes()).hexdigest()
+        if not as_copy:
+            for pid,entry in self.files.items():
+                if pid in self.items and os.path.normcase(entry['path'])==os.path.normcase(str(path)) and entry['sha256']==fingerprint:
+                    project=self.items[pid]
+                    return self.select(project,self.page(project))
         # Import under fresh project/document identities so another open version
         # and its unsaved edits remain owned by their existing documents.
         with zipfile.ZipFile(path) as archive:
@@ -237,6 +257,7 @@ class Projects:
                     if not name.startswith('references/') or '..' in Path(name).parts or Path(name).is_absolute(): raise ValueError('Invalid reference path')
                     target=folder/name; target.parent.mkdir(exist_ok=True); target.write_bytes(archive.read(name))
         self.items[project['id']]=project; self.write(project)
+        if not as_copy: self.bind_file(project,path,fingerprint)
         return self.select(project,self.page(project))
 
     def export(self,project,path):

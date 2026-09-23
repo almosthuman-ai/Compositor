@@ -28,7 +28,7 @@ def test_portable_book_retains_layers_prose_references_and_live_edits(tmp_path):
     act('select',pageId=second); ws.dispatch('edit',{'operation':'fill','args':{'color':'green'}})
     bundle=tmp_path/'book.compbook'; act('save',path=str(bundle))
     original_id=project['id']
-    loaded=act('open',path=str(bundle))
+    loaded=act('open',path=str(bundle),asCopy=True)
     assert loaded['id']!=original_id
     assert loaded['pages'][0]['text']=='A line of prose.\nAnother paragraph.'
     assert loaded['references'][0]['role']=='character'
