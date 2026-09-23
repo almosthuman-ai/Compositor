@@ -181,8 +181,11 @@ class Workspace(QObject):
                 return self.window.generate_with_chat(d,a)
             if route!='api': raise ValueError('Choose API provider or ChatGPT subscription')
             result=self.generation.submit(d,self.creative_request(d,a)); self.changed.emit(); return result
+        if action=='generation_preview':
+            im=self.generation.preview(d,a['jobId'],a.get('paletteMode','document')); data=io.BytesIO(); im.save(data,'PNG')
+            return {'documentId':d.id,'revision':d.revision,'width':im.width,'height':im.height,'mimeType':'image/png','data':base64.b64encode(data.getvalue()).decode()}
         if action=='apply_generation':
-            result=self.generation.apply(d,a['jobId']); self.notify(); return result
+            result=self.generation.apply(d,a['jobId'],a.get('paletteMode','document')); self.notify(); return result
         if action=='connector_push': return self.connector().push(d,a.get('projectId') or d.studio.get('lessonId'),a.get('role','background'),a.get('page',1))
         raise ValueError(f'Unknown action: {action}')
 

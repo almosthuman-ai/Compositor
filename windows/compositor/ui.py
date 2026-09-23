@@ -808,10 +808,14 @@ class Editor(QMainWindow):
     def selected_job(self): return self.ws.generation.jobs.get(self.jobs.currentItem().data(Qt.ItemDataRole.UserRole)) if self.jobs.currentItem() else None
     def inspect_job(self):
         job=self.selected_job()
-        if job and job.get('result'): QDesktopServices.openUrl(QUrl.fromLocalFile(job['result']))
+        if job and job.get('result'):
+            from .candidate_ui import CandidateDialog
+            if job['documentId'] not in self.ws.documents:
+                self.statusBar().showMessage('Open the source document to preview placement.',10000); return
+            CandidateDialog(self,job).exec()
     def apply_job(self):
         job=self.selected_job()
-        if job: self.run('apply_generation',{'jobId':job['id']})
+        if job: self.run('apply_generation',{'jobId':job['id'],'documentId':job['documentId']})
     def import_job(self):
         job=self.selected_job()
         if job and job.get('result'): self.edit('import_image',{'path':job['result'],'provenance':{'generationId':job['id']}})

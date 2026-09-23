@@ -228,6 +228,11 @@ class Document:
                 if self.selection is None: raise ValueError('Make a selection first')
                 if l.kind not in ('group','adjustment'): self.raster(l)
                 l.mask=self.selection.copy()
+        elif op=='pixel_strokes':
+            strokes=a.get('strokes',[])
+            if not strokes or len(strokes)>4096: raise ValueError('Provide between 1 and 4096 pencil strokes')
+            for stroke in strokes:
+                self._edit('pixel_erase' if stroke.get('erase') else 'pencil',{**stroke,'layerId':a.get('layerId'),'target':a.get('target','image')})
         elif op in ('brush','erase','pencil','pixel_erase','clone','heal','blur_brush'):
             l=self.layer(a.get('layerId')); stroke=self.pencil_mask(a) if op in ('pencil','pixel_erase') else self.stroke_mask(a)
             if self.selection is not None:

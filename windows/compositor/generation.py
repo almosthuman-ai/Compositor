@@ -103,7 +103,40 @@ class Generation:
 
     def receive(self,job): self.jobs[job['id']]=job
 
-    def apply(self,document,job_id):
+    def candidate_layer(self,document,job_id,palette_mode='document'):
+        """The same logical pixels are used by inspection and application."""
+        from .document import Layer
+        job=self.jobs[job_id]
+        if job['status']!='complete': raise ValueError('The image is not complete')
+        if job['documentId']!=document.id: raise ValueError('This candidate belongs to another document')
+        if palette_mode not in ('document','candidate'): raise ValueError('Choose document or candidate colors')
+        method='nearest' if document.pixel_art else job.get('resampling','smooth')
+        with Image.open(job['result']) as source: im=source.convert('RGBA')
+        box=job.get('box'); x=y=0; mask=None
+        if box:
+            if job.get('workingContentBox'):
+                im=im.resize(tuple(job['workingSize']),resampling(method)).crop(tuple(job['workingContentBox']))
+            im=im.resize((box['width'],box['height']),resampling(method)); x,y=box['x'],box['y']
+            mask_path=self.root/job_id/'selection.png'
+            if mask_path.exists():
+                with Image.open(mask_path) as source: mask=source.convert('L')
+        if document.pixel_art:
+            from .pixel_art import convert
+            if not box: im=im.resize((document.width,document.height),Image.Resampling.NEAREST)
+            palette=document.pixel_art.get('palette') if palette_mode=='document' else None
+            if palette and len(palette)==1: palette=palette*2
+            if palette:
+                im,_=convert(im,{'width':im.width,'height':im.height,'palette':palette,'sampling':'nearest'})
+            else: im.putalpha(im.getchannel('A').point(lambda value:255 if value>=128 else 0))
+            if mask is not None: mask=mask.point(lambda value:255 if value>=128 else 0)
+        return Layer(name=job.get('userPrompt',job['prompt'])[:48],image=im,mask=mask,x=x,y=y,resampling=method,provenance={'generationId':job_id,'provider':job['config']['provider'],'model':job['config']['model'],'prompt':job['prompt'],'creativeContext':job.get('creativeContext',{}),'sourceRevision':job['sourceRevision'],'pixelPalette':palette_mode if document.pixel_art else None})
+
+    def preview(self,document,job_id,palette_mode='document'):
+        from .pixels import placed
+        layer=self.candidate_layer(document,job_id,palette_mode)
+        return Image.alpha_composite(document.render(),placed(layer,(document.width,document.height)))
+
+    def apply(self,document,job_id,palette_mode='document'):
         from .document import Layer
         job=self.jobs[job_id]
         if job['status']!='complete': raise ValueError('The image is not complete')
@@ -112,15 +145,7 @@ class Generation:
         if job['sourceRevision']!=document.revision: raise ValueError('The document changed after generation. The candidate remains available; import it as a layer to place it yourself.')
         before=document.snapshot()
         try:
-            im=Image.open(job['result']).convert('RGBA'); box=job.get('box'); x=y=0; mask=None
-            if box:
-                if job.get('workingContentBox'):
-                    im=im.resize(tuple(job['workingSize']),resampling(job.get('resampling','smooth'))).crop(tuple(job['workingContentBox']))
-                im=im.resize((box['width'],box['height']),resampling(job.get('resampling','smooth'))); x,y=box['x'],box['y']
-                mask_path=self.root/job_id/'selection.png'
-                if mask_path.exists():
-                    mask=Image.open(mask_path).convert('L')
-            document.add(Layer(name=job.get('userPrompt',job['prompt'])[:48],image=im,mask=mask,x=x,y=y,resampling=job.get('resampling','smooth'),provenance={'generationId':job_id,'provider':job['config']['provider'],'model':job['config']['model'],'prompt':job['prompt'],'creativeContext':job.get('creativeContext',{}),'sourceRevision':job['sourceRevision']}))
+            document.add(self.candidate_layer(document,job_id,palette_mode))
             document._validate()
         except Exception: document.restore(before); raise
         document.history.append(('generation',before)); document.history=document.history[-60:]; document.future=[]

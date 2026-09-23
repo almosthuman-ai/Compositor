@@ -85,9 +85,19 @@ def compositor_generation_job(jobId:str) -> dict:
     return call('job',locals())
 
 @server.tool()
-def compositor_apply_generation(jobId:str,documentId:str|None=None) -> dict:
-    """Apply a reviewed candidate as an editable layer only if its exact source document is unchanged."""
+def compositor_apply_generation(jobId:str,documentId:str|None=None,paletteMode:Literal['document','candidate']='document') -> dict:
+    """Apply a reviewed candidate as an editable layer only if its exact source document is unchanged. Pixel documents use their logical grid, nearest sampling, hard alpha and document palette by default; candidate keeps generated colors. Original provider bytes are retained."""
     return call('apply_generation',locals())
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True,destructiveHint=False))
+def compositor_preview_candidate(jobId:str,documentId:str|None=None,paletteMode:Literal['document','candidate']='document') -> Image:
+    """Inspect the actual candidate placement, including logical pixel grid, chosen palette and saved selection mask, without changing artwork or desktop focus."""
+    result=call('generation_preview',locals()); return Image(data=base64.b64decode(result['data']),format='png')
+
+@server.tool()
+def compositor_pixel_strokes(strokes:list[dict],documentId:str|None=None,layerId:str|None=None,expectedRevision:int|None=None) -> dict:
+    """Author deliberate pixel clusters as one undoable edit. Each stroke has points [[x,y],...], color, integer size (default 1), and optional erase true. Uses the same hard pencil and selection rules as human drawing. Add a separate raster cleanup layer first to preserve the original."""
+    return call('edit',{'operation':'pixel_strokes','documentId':documentId,'expectedRevision':expectedRevision,'args':{'layerId':layerId,'strokes':[{'size':1,**stroke} for stroke in strokes]}})
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True,destructiveHint=False))
 def compositor_project_list() -> list:
