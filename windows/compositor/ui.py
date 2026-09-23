@@ -493,7 +493,7 @@ class Editor(QMainWindow):
         style_button=icon_button('effects','Edit styles',self.edit_generation_style); row.addWidget(style_button); layout.addLayout(row)
         self.gen_context=QLabel(); self.gen_context.setWordWrap(True); layout.addWidget(self.gen_context)
         row=QHBoxLayout(); self.gen_kind=QComboBox(); self.gen_kind.addItem('New image','generate'); self.gen_kind.addItem('Edit whole image','edit'); self.gen_kind.addItem('Refine selected area','patch'); row.addWidget(self.gen_kind)
-        self.gen_size=QComboBox(); self.gen_size.setEditable(True); self.gen_size.addItems(['1024x1024','1536x1024','1024x1536','2048x1152']); row.addWidget(self.gen_size); layout.addLayout(row)
+        self.gen_size=QComboBox(); self.gen_size.setEditable(True); self.gen_size.addItems(['Match canvas','1024x1024','1536x1024','1024x1536','2048x1152']); self.gen_size.setAccessibleName('Generation working size'); self.gen_size.setToolTip('Working resolution for generation. Pixel artwork keeps its logical canvas size.'); row.addWidget(self.gen_size); layout.addLayout(row)
         row=QHBoxLayout(); row.addWidget(QLabel('Sampling')); self.gen_sampling=QComboBox(); self.gen_sampling.addItem('Document default',None); self.gen_sampling.addItem('Smooth','smooth'); self.gen_sampling.addItem('Nearest neighbor','nearest'); row.addWidget(self.gen_sampling); layout.addLayout(row)
         row=QHBoxLayout(); ref=QPushButton('References…'); ref.clicked.connect(self.choose_references); row.addWidget(ref); self.ref_label=QLabel('None'); row.addWidget(self.ref_label); layout.addLayout(row)
         self.gen_provider_label=QLabel(); self.gen_provider_label.setWordWrap(True); layout.addWidget(self.gen_provider_label)
@@ -782,7 +782,7 @@ class Editor(QMainWindow):
             folder=self.ws.settings.root/'clipboard'; folder.mkdir(exist_ok=True); path=folder/(str(uuid.uuid4())+'.png'); im.save(str(path)); self.edit('import_image',{'path':str(path)})
     def choose_references(self):
         paths,_=QFileDialog.getOpenFileNames(self,'Reference images','','Images (*.png *.jpg *.jpeg *.webp)'); self.references=paths; self.ref_label.setText(f'{len(paths)} selected')
-    def generation_args(self): return {'prompt':self.prompt.toPlainText(),'kind':self.gen_kind.currentData(),'size':self.gen_size.currentText(),'references':self.references,'styleId':self.gen_style.currentData(),'resampling':self.gen_sampling.currentData()}
+    def generation_args(self): return {'prompt':self.prompt.toPlainText(),'kind':self.gen_kind.currentData(),'size':None if self.gen_size.currentText()=='Match canvas' else self.gen_size.currentText(),'references':self.references,'styleId':self.gen_style.currentData(),'resampling':self.gen_sampling.currentData()}
     def generate(self): self.run('generate',self.generation_args())
     def generate_with_chat(self,document,args):
         self.show_panel(self.chat_dock)
@@ -803,7 +803,7 @@ class Editor(QMainWindow):
         if result:
             dialog=QDialog(self); dialog.setWindowTitle('Generation prompt'); dialog.resize(720,640); layout=QVBoxLayout(dialog)
             text=QPlainTextEdit(result['prompt']); text.setReadOnly(True); layout.addWidget(text)
-            label=QLabel(f"{len(result['references'])} reference images · "+('Source image included' if self.gen_kind.currentData()!='generate' else 'New image')); layout.addWidget(label)
+            label=QLabel(f"{len(result['references'])} reference images · {result['workingSize'][0]} × {result['workingSize'][1]} working image · "+('Source image included' if self.gen_kind.currentData()!='generate' else 'New image')); label.setWordWrap(True); layout.addWidget(label)
             close=QPushButton('Close'); close.clicked.connect(dialog.accept); layout.addWidget(close); dialog.exec()
     def selected_job(self): return self.ws.generation.jobs.get(self.jobs.currentItem().data(Qt.ItemDataRole.UserRole)) if self.jobs.currentItem() else None
     def inspect_job(self):

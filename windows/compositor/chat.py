@@ -230,7 +230,7 @@ class ChatSession(QObject):
             job['creativeContext']=source.get('creativeContext',{}); job['userPrompt']=source.get('userPrompt',job['prompt']); job['requestedPrompt']=source.get('prompt'); job['references']=[]
             job['candidateSize']=list(candidate.size)
             job['sourceStateId']=source.get('sourceStateId') if source else getattr(self,'source_state_id',None)
-            job.update({key:source[key] for key in ('workingSize','workingContentBox','selectionBox','editArea','resampling') if key in source})
+            job.update({key:source[key] for key in ('workingSize','workingContentBox','selectionBox','editArea','resampling','logicalSize','pixelScale') if key in source})
             if source.get('sourcePath'):
                 shutil.copyfile(source['sourcePath'],folder/'source.png'); job['inputs']=[str(folder/'source.png')]
                 mask=Path(source['sourcePath']).with_name('selection.png')

@@ -5,7 +5,7 @@ from PySide6.QtCore import QObject, Signal, QTimer
 from PIL import Image
 from .document import Document
 from .generation import Generation
-from .generation_source import prepare_source, region_instruction
+from .generation_source import prepare_source, region_instruction, provider_sizes
 from .connectors import StudioConnector
 from .settings import atomic_json
 from .projects import Projects
@@ -137,7 +137,6 @@ class Workspace(QObject):
             converted=Document(*image.size,title=a.get('title') or d.title+' — pixel art'); converted.pixel_art=metadata
             converted.add(Layer(name='Pixel artwork',image=image,resampling='nearest',provenance={'sourceDocument':d.id,'sourceRevision':d.revision,'conversion':metadata['conversion']}))
             self.documents[converted.id]=converted; self.active=converted.id; self.notify(); return converted.info()
-        if action=='preview_generation': return self.creative_request(d,a)
         if action=='edit':
             result=d.execute(a['operation'],a.get('args'),a.get('expectedRevision')); self.notify(); return result
         if action=='save':
@@ -160,20 +159,23 @@ class Workspace(QObject):
                 return {'documentId':d.id,'revision':d.revision,'width':im.width,'height':im.height,'mimeType':'image/png','data':base64.b64encode(data.getvalue()).decode()}
             bg=Image.new('RGBA',im.size,'white'); im=Image.alpha_composite(bg,im).convert('RGB'); data=io.BytesIO(); im.save(data,'JPEG',quality=90,subsampling=0)
             return {'documentId':d.id,'revision':d.revision,'width':im.width,'height':im.height,'mimeType':'image/jpeg','data':base64.b64encode(data.getvalue()).decode()}
-        if action=='prepare_generation':
+        if action in ('prepare_generation','preview_generation'):
             folder=self.settings.root/'prepared'/str(uuid.uuid4()); folder.mkdir(parents=True)
-            kind=a.get('kind','edit'); source=prepare_source(d,kind,a.get('box'),folder,a.get('resampling'))
+            route=a.get('route') or self.settings.values['generationRoute']
+            sizes=provider_sizes({**self.settings.values,**{k:v for k,v in a.items() if k in ('provider','model')}}) if action=='preview_generation' and route=='api' else None
+            kind=a.get('kind','edit'); source=prepare_source(d,kind,a.get('box'),folder,a.get('resampling'),a.get('size'),sizes)
             request=self.creative_request(d,{**a,'prompt':a.get('prompt') or 'Edit the supplied image.','kind':kind})
-            if source.get('editArea'): request['prompt']+='\n\n'+region_instruction(source)
+            request['prompt']+='\n\n'+region_instruction(source)
             references=[]
             for i,ref in enumerate(request['references']):
                 target=folder/f'reference-{i}.png'
                 with Image.open(ref['path']) as image: image.convert('RGBA').save(target)
                 references.append({**ref,'path':str(target)})
             source_path=source['sourcePath']
-            self.prepared_generation={**source,'documentId':d.id,'sourceRevision':d.revision,'sourceStateId':d.state_id,'kind':kind,'created':time.time(),'prompt':request['prompt'],'userPrompt':request['userPrompt'],'creativeContext':request['creativeContext'],'references':references,'inputs':([source_path] if source_path else [])+[r['path'] for r in references]}
-            self.prepared_generation['requestedSize']='x'.join(map(str,source['workingSize'])) if source.get('workingSize') else a.get('size')
-            atomic_json(folder/'source.json',self.prepared_generation); return self.prepared_generation
+            prepared={**source,'documentId':d.id,'sourceRevision':d.revision,'sourceStateId':d.state_id,'kind':kind,'created':time.time(),'prompt':request['prompt'],'userPrompt':request['userPrompt'],'creativeContext':request['creativeContext'],'references':references,'inputs':([source_path] if source_path else [])+[r['path'] for r in references]}
+            prepared['requestedSize']='x'.join(map(str,source['workingSize']))
+            if action=='prepare_generation': self.prepared_generation=prepared
+            atomic_json(folder/'source.json',prepared); return prepared
         if action=='generate':
             route=a.get('route') or self.settings.values['generationRoute']
             if route=='chatgpt':

@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import base64, copy, io, json, os, time, urllib.request, urllib.error, uuid
 from PIL import Image
 from .settings import atomic_json
-from .generation_source import prepare_source, region_instruction, normalize_candidate
+from .generation_source import prepare_source, region_instruction, normalize_candidate, provider_sizes
 from .pixels import resampling
 
 def http_json(url,body=None,headers=None,timeout=300):
@@ -72,14 +72,14 @@ class Generation:
         key=self.settings.key(config['provider'])
         if not key: raise ValueError('Configure your image provider in Settings first')
         job_id=str(uuid.uuid4()); folder=self.root/job_id; folder.mkdir()
-        kind=args.get('kind','generate'); source=prepare_source(document,kind,args.get('box'),folder,args.get('resampling'))
+        kind=args.get('kind','generate'); source=prepare_source(document,kind,args.get('box'),folder,args.get('resampling'),args.get('size'),provider_sizes(config))
         images=[source['sourcePath']] if source['sourcePath'] else []
-        if source.get('editArea'): prompt+='\n\n'+region_instruction(source)
+        prompt+='\n\n'+region_instruction(source)
         for i,reference in enumerate(args.get('references',[])):
             path=reference['path'] if isinstance(reference,dict) else reference
             with Image.open(path) as im: im.convert('RGBA').save(folder/f'reference-{i}.png')
             images.append(str(folder/f'reference-{i}.png'))
-        size=args.get('size','1024x1024')
+        size='x'.join(map(str,source['workingSize']))
         job={**source,'id':job_id,'status':'queued','created':time.time(),'documentId':document.id,'sourceRevision':document.revision,'sourceStateId':document.state_id,'kind':kind,'prompt':prompt,'config':config,'size':size,'inputs':images,'references':copy.deepcopy(args.get('references',[])),'autoApply':bool(args.get('autoApply',False))}
         job['userPrompt']=args.get('userPrompt',prompt); job['creativeContext']=copy.deepcopy(args.get('creativeContext',{}))
         # Only non-secret provider configuration is retained. Credentials remain in the user's key store.
