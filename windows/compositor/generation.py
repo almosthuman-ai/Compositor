@@ -90,6 +90,7 @@ class Generation:
             images.append(str(folder/f'reference-{i}.png'))
         size=args.get('size','1024x1024')
         job={'id':job_id,'status':'queued','created':time.time(),'documentId':document.id,'sourceRevision':document.revision,'kind':kind,'prompt':prompt,'box':box,'config':config,'size':size,'inputs':images,'references':copy.deepcopy(args.get('references',[])),'autoApply':bool(args.get('autoApply',False))}
+        job['userPrompt']=args.get('userPrompt',prompt); job['creativeContext']=copy.deepcopy(args.get('creativeContext',{}))
         # Only non-secret provider configuration is retained. Credentials remain in the user's key store.
         self.jobs[job_id]=job; atomic_json(folder/'job.json',job)
         self.pool.submit(self._run,copy.deepcopy(job),key)
@@ -126,7 +127,7 @@ class Generation:
                 if mask_path.exists():
                     from PIL import ImageChops
                     im.putalpha(ImageChops.multiply(im.getchannel('A'),Image.open(mask_path).convert('L')))
-            document.add(Layer(name=job['prompt'][:48],image=im,x=x,y=y,provenance={'generationId':job_id,'provider':job['config']['provider'],'model':job['config']['model'],'prompt':job['prompt'],'sourceRevision':job['sourceRevision']}))
+            document.add(Layer(name=job.get('userPrompt',job['prompt'])[:48],image=im,x=x,y=y,provenance={'generationId':job_id,'provider':job['config']['provider'],'model':job['config']['model'],'prompt':job['prompt'],'creativeContext':job.get('creativeContext',{}),'sourceRevision':job['sourceRevision']}))
             document._validate()
         except Exception: document.restore(before); raise
         document.history.append(('generation',before)); document.future=[]; document.revision+=1; document._cache=None

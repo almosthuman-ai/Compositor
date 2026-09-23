@@ -4,7 +4,7 @@ import json
 from PySide6.QtCore import Qt, QRectF, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut, QPainter
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QPushButton,QComboBox,QListWidget,QListWidgetItem,
-    QLineEdit,QPlainTextEdit,QLabel,QTextBrowser,QFileDialog,QInputDialog,QDialog,QCheckBox,QGraphicsView,QGraphicsScene,QMessageBox)
+    QLineEdit,QPlainTextEdit,QLabel,QTextBrowser,QFileDialog,QInputDialog,QDialog,QCheckBox,QGraphicsView,QGraphicsScene,QMessageBox,QScrollArea,QTabWidget)
 from .chrome import icon_button, EditorComboBox as QComboBox
 
 
@@ -20,25 +20,34 @@ class ProductionPanel(QWidget):
         for title,fn in [('New project',self.create),('Open…',self.open),('Save…',self.save)]:
             button=QPushButton(title); button.clicked.connect(fn); row.addWidget(button)
         root.addLayout(row); self.empty=QLabel('Create an artwork, comic or book.\n\nKeep its pages, references and writing together.'); self.empty.setWordWrap(True); self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter); root.addWidget(self.empty,1)
-        self.body=QWidget(); root.addWidget(self.body,1); layout=QVBoxLayout(self.body); layout.setContentsMargins(0,0,0,0); layout.setSpacing(8)
+        self.body=QWidget(); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame); scroll.setWidget(self.body); root.addWidget(scroll,1); layout=QVBoxLayout(self.body); layout.setContentsMargins(0,0,4,0); layout.setSpacing(8)
         self.projects=QComboBox(); self.projects.currentIndexChanged.connect(self.select_project); layout.addWidget(self.projects)
-        self.pages=QListWidget(); self.pages.setMinimumHeight(80); self.pages.setMaximumHeight(220); self.pages.itemClicked.connect(self.select_page); layout.addWidget(self.pages,1)
+        self.pages=QListWidget(); self.pages.setMinimumHeight(90); self.pages.setMaximumHeight(160); self.pages.itemClicked.connect(self.select_page); layout.addWidget(self.pages,1)
         row=QHBoxLayout()
         for name,title,fn in [('plus','Add page',self.add_page),('up','Move page earlier',lambda:self.reorder(-1)),('down','Move page later',lambda:self.reorder(1)),('delete','Remove page',self.remove_page)]: row.addWidget(icon_button(name,title,fn))
         row.addStretch()
         layout.addLayout(row)
         self.title=QLineEdit(); self.title.setPlaceholderText('Page title'); layout.addWidget(self.title)
-        self.text=QPlainTextEdit(); self.text.setPlaceholderText('Page prose for reading and PDF exports'); self.text.setFixedHeight(110); layout.addWidget(self.text)
-        self.prompt=QPlainTextEdit(); self.prompt.setPlaceholderText('Art direction for this page'); self.prompt.setFixedHeight(90); layout.addWidget(self.prompt)
+        self.page_tabs=QTabWidget(); writing=QWidget(); writing_layout=QVBoxLayout(writing); writing_layout.setContentsMargins(6,8,6,6); self.page_tabs.addTab(writing,'Page'); direction=QWidget(); direction_layout=QVBoxLayout(direction); direction_layout.setContentsMargins(6,8,6,6); self.page_tabs.addTab(direction,'Style && cast'); layout.addWidget(self.page_tabs,1)
+        writing_layout.addWidget(QLabel('Writing')); self.text=QPlainTextEdit(); self.text.setPlaceholderText('Page prose for reading and PDF exports'); self.text.setFixedHeight(85); writing_layout.addWidget(self.text)
+        writing_layout.addWidget(QLabel('Image prompt')); self.prompt=QPlainTextEdit(); self.prompt.setPlaceholderText('Describe the scene for this page'); self.prompt.setFixedHeight(85); writing_layout.addWidget(self.prompt); writing_layout.addStretch()
         for field in (self.title,self.text,self.prompt): field.textChanged.connect(self.remember_draft)
-        self.draft_status=QLabel(); layout.addWidget(self.draft_status)
+        self.draft_status=QLabel(); writing_layout.addWidget(self.draft_status)
         row=QHBoxLayout()
         for title,fn in [('Save page text',self.save_text),('Generate page',self.generate)]:
             button=QPushButton(title); button.clicked.connect(fn); row.addWidget(button)
-        layout.addLayout(row); row=QHBoxLayout()
-        for title,fn in [('Project details',self.details),('References',self.references)]:
+        layout.addLayout(row)
+        self.style_label=QLabel(); self.style_label.setWordWrap(True); direction_layout.addWidget(self.style_label)
+        row=QHBoxLayout();
+        for title,fn in [('Project style…',self.edit_style),('Characters…',self.characters)]:
             button=QPushButton(title); button.clicked.connect(fn); row.addWidget(button)
-        layout.addLayout(row); row=QHBoxLayout()
+        direction_layout.addLayout(row); direction_layout.addWidget(QLabel('Characters on this page'))
+        self.cast=QListWidget(); self.cast.setMinimumHeight(80); self.cast.setMaximumHeight(110); self.cast.itemChanged.connect(self.choose_cast); direction_layout.addWidget(self.cast)
+        row=QHBoxLayout()
+        for title,fn in [('Project details',self.details),('Other references…',self.references)]:
+            button=QPushButton(title); button.clicked.connect(fn); row.addWidget(button)
+        direction_layout.addLayout(row); direction_layout.addStretch()
+        row=QHBoxLayout()
         for title,fn in [('Export reading copy',self.export),('Present',self.present)]:
             button=QPushButton(title); button.clicked.connect(fn); row.addWidget(button)
         layout.addLayout(row); self.ws.changed.connect(self.refresh); self.refresh()
@@ -61,6 +70,10 @@ class ProductionPanel(QWidget):
                     item=QListWidgetItem(f"{i+1}. {page['title']}"); item.setData(Qt.ItemDataRole.UserRole,page['id']); self.pages.addItem(item)
                     if page['id']==project['activePage']: self.pages.setCurrentItem(item)
                 page=self.ws.projects.page(project); self.key=(project['id'],page['id'])
+                self.style_label.setText('Style: '+(project.get('style') or {}).get('name','None'))
+                self.cast.clear()
+                for character in project.get('characters',[]):
+                    item=QListWidgetItem(character['name']); item.setData(Qt.ItemDataRole.UserRole,character['id']); item.setFlags(item.flags()|Qt.ItemFlag.ItemIsUserCheckable); item.setCheckState(Qt.CheckState.Checked if character['id'] in page.get('characterIds',[]) else Qt.CheckState.Unchecked); self.cast.addItem(item)
                 value=self.drafts.get(self.key,page)
                 for field,key in ((self.title,'title'),(self.text,'text'),(self.prompt,'prompt')):
                     current=field.text() if isinstance(field,QLineEdit) else field.toPlainText()
@@ -106,10 +119,20 @@ class ProductionPanel(QWidget):
         if not self.refreshing and index>=0: self.call('select',{'projectId':self.projects.itemData(index)})
     def select_page(self,item): self.call('select',{'pageId':item.data(Qt.ItemDataRole.UserRole)})
     def create(self):
-        kind,ok=QInputDialog.getItem(self,'New project','Format',['artwork','comic','book'],0,False)
-        if not ok: return
-        fields=self.editor.form_dialog('New '+kind,{'title':'Untitled '+kind,'pageCount':1 if kind=='artwork' else 4,'width':1536,'height':1024})
-        if fields: self.call('new',{'kind':kind,**fields})
+        from .creative_ui import NewProjectDialog
+        dialog=NewProjectDialog(self)
+        if dialog.exec()==QDialog.DialogCode.Accepted: self.call('new',dialog.values())
+
+    def edit_style(self):
+        from .creative_ui import StyleDialog
+        if self.project(): StyleDialog(self.editor,self.project()).exec()
+    def characters(self):
+        from .creative_ui import CharacterDialog
+        if self.project(): CharacterDialog(self.editor,self.project()).exec()
+    def choose_cast(self,item):
+        if self.refreshing or not self.key: return
+        ids=[self.cast.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.cast.count()) if self.cast.item(i).checkState()==Qt.CheckState.Checked]
+        self.call('update_page',{'pageId':self.key[1],'characterIds':ids})
     def open(self):
         path,_=QFileDialog.getOpenFileName(self,'Open project','','Compositor project (*.compbook)')
         if path: self.call('open',{'path':path})
@@ -153,7 +176,7 @@ class ProductionPanel(QWidget):
     def generate(self):
         if not self.project() or not self.save_text(): return
         result=self.call('generate',{'pageId':self.key[1]})
-        if result: self.editor.generation_dock.raise_()
+        if result: self.editor.show_panel(self.editor.generation_dock)
     def export(self):
         project=self.project()
         if not project or not self.save_all_text(): return

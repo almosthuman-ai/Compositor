@@ -163,10 +163,13 @@ class ChatSession(QObject):
             with Image.open(io.BytesIO(raw)) as im: im.convert('RGBA').save(folder/'result.png'); actual=list(im.size)
             source=self.native_sources.pop(item.get('id'),{})
             job={'id':job_id,'status':'complete','created':time.time(),'finished':time.time(),'documentId':source.get('documentId',self.active_document),'sourceRevision':source.get('sourceRevision',self.source_revision),'kind':'subscription','box':source.get('box'),'prompt':item.get('revisedPrompt') or 'ChatGPT image','config':{'provider':'chatgpt-subscription','model':self.model or 'account default'},'result':str(folder/'result.png'),'actualSize':actual,'nativeItemId':item.get('id'),'autoApply':False}
+            job['creativeContext']=source.get('creativeContext',{}); job['userPrompt']=source.get('userPrompt',job['prompt']); job['requestedPrompt']=source.get('prompt'); job['references']=[]
             if source.get('sourcePath'):
                 shutil.copyfile(source['sourcePath'],folder/'source.png'); job['inputs']=[str(folder/'source.png')]
                 mask=Path(source['sourcePath']).with_name('selection.png')
                 if mask.exists(): shutil.copyfile(mask,folder/'selection.png')
+            for i,ref in enumerate(source.get('references',[])):
+                target=folder/f'reference-{i}.png'; shutil.copyfile(ref['path'],target); job.setdefault('inputs',[]).append(str(target)); job['references'].append({**ref,'path':str(target)})
             atomic_json(folder/'job.json',job); self.ws.generation.receive(job); self.ws.changed.emit(); self.display.emit('Image ready in Generate. Inspect it, then apply or place it as a layer.')
         except Exception as e: self.display.emit('Could not import the generated candidate: '+html.escape(str(e)))
 

@@ -10,6 +10,8 @@ The tool rail keeps familiar shortcuts: V to move, M to select, B to paint and H
 
 Color, Properties and Layers stay beside the canvas. Width and height in Properties are pixel dimensions; resizing a layer preserves its source pixels. Open Generate, ChatGPT or Projects from the options bar when needed, and close their panels to reclaim canvas space.
 
+The Type tool offers searchable installed font families and styles, alignment, line spacing, color and a preview of the rendered text. Double-click a text layer to edit it. Font availability follows the fonts installed on your computer.
+
 ## Run from source
 
 Install Python 3.11 for Windows, then run:
@@ -45,7 +47,7 @@ Runtime installation, initialization, model discovery and the official OAuth sta
 
 In Settings, choose an OpenAI-compatible or Gemini provider, enter its image model and save your API key. Keys are stored in Windows Credential Manager; `OPENAI_API_KEY` and `GEMINI_API_KEY` environment variables are also supported. A compatible OpenAI endpoint can be configured for another provider.
 
-Generate a new image, edit the composite, or refine a selected region. Region edits send the exact crop and your chosen references. Candidates retain their inputs, prompt, provider and native dimensions. Applying a candidate adds a layer; if you changed its source while it was generating, the app keeps the candidate for manual placement.
+Generate a new image, edit the composite, or refine a selected region. Region edits send the exact crop and your chosen references. Choose a built-in style or create one in the style library. Each profile can include direction before and after your prompt, plus reference images. **Review prompt** shows the assembled instructions before you generate. Candidates retain their inputs, prompt, provider and native dimensions. Applying a candidate adds a layer; if you changed its source while it was generating, the app keeps the candidate for manual placement.
 
 ## Use with any MCP client
 
@@ -68,7 +70,9 @@ The tools expose workspace inspection, document creation and opening, layer and 
 
 ## Artwork, comics and books
 
-The Projects panel creates standalone artwork, comics and illustrated books with up to 64 pages. Every page is a layered document. Add prose and a prompt to each page, set project-wide story and art direction, and add reference images labeled as character, style or composition. Page generation uses that direction and those references; the result remains a candidate until you apply it.
+The Projects panel creates standalone artwork, comics and illustrated books with up to 64 pages. Every page is a layered document. Add prose and an image prompt to each page. In **Style & cast**, choose the project style, create named characters and select who appears on the current page. Attach character images or generate a reference sheet, inspect the candidate, then choose **Use reference**. Page generation includes the selected characters, project style and general references automatically.
+
+A project keeps its own style instructions and copied reference images. Editing a reusable style in the library leaves existing projects unchanged. Character references and identity notes guide generation; inspect the results and refine any inconsistencies.
 
 Projects save locally as you work. **Save** creates a portable `.compbook` containing all pages, editable layers, prose and references. Opening a portable copy creates a separate project, preserving any version already open. Page text drafts survive refreshes, page switches and restarts.
 

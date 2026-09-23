@@ -1,6 +1,6 @@
 """Native Windows art editor. Menus, pointer tools and MCP share Workspace commands."""
 from pathlib import Path
-import html, json, math
+import html, json, math, re
 from PySide6.QtCore import Qt, QRectF, QPointF, QSize, QTimer, QUrl, QEvent
 from PySide6.QtGui import QAction, QActionGroup, QColor, QPainter, QPen, QBrush, QPixmap, QImage, QPainterPath, QIcon, QKeySequence, QDesktopServices, QMouseEvent
 from PySide6.QtWidgets import (QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QSplitter,QTabWidget,QTabBar,QDockWidget,QToolBar,QLabel,QPushButton,QToolButton,QComboBox,QDoubleSpinBox,QSpinBox,QSlider,QLineEdit,QPlainTextEdit,QTextBrowser,QListWidget,QListWidgetItem,QGraphicsView,QGraphicsScene,QGraphicsPixmapItem,QGraphicsPathItem,QFileDialog,QColorDialog,QInputDialog,QMessageBox,QDialog,QDialogButtonBox,QCheckBox,QScrollArea,QAbstractItemView)
@@ -443,11 +443,15 @@ class Editor(QMainWindow):
 
     def build_generation(self):
         panel=QWidget(); layout=QVBoxLayout(panel); layout.setSpacing(10); self.prompt=QPlainTextEdit(); self.prompt.setPlaceholderText('Describe an image or the change you want…'); self.prompt.setFixedHeight(130); layout.addWidget(self.prompt)
+        row=QHBoxLayout(); row.addWidget(QLabel('Style')); self.gen_style=QComboBox(); self.gen_style.setAccessibleName('Generation style'); row.addWidget(self.gen_style,1)
+        style_button=icon_button('effects','Edit styles',self.edit_generation_style); row.addWidget(style_button); layout.addLayout(row)
+        self.gen_context=QLabel(); self.gen_context.setWordWrap(True); layout.addWidget(self.gen_context)
         row=QHBoxLayout(); self.gen_kind=QComboBox(); self.gen_kind.addItem('New image','generate'); self.gen_kind.addItem('Edit whole image','edit'); self.gen_kind.addItem('Refine selected area','patch'); row.addWidget(self.gen_kind)
         self.gen_size=QComboBox(); self.gen_size.setEditable(True); self.gen_size.addItems(['1024x1024','1536x1024','1024x1536','2048x1152']); row.addWidget(self.gen_size); layout.addLayout(row)
         row=QHBoxLayout(); ref=QPushButton('References…'); ref.clicked.connect(self.choose_references); row.addWidget(ref); self.ref_label=QLabel('None'); row.addWidget(self.ref_label); layout.addLayout(row)
         self.gen_provider_label=QLabel(); self.gen_provider_label.setWordWrap(True); layout.addWidget(self.gen_provider_label)
         generate=QPushButton('Generate candidate'); generate.clicked.connect(self.generate); layout.addWidget(generate)
+        preview=QPushButton('Review prompt…'); preview.clicked.connect(self.preview_prompt); layout.addWidget(preview)
         self.jobs=QListWidget(); self.jobs.setIconSize(QSize(56,48)); layout.addWidget(self.jobs,1)
         row=QHBoxLayout()
         for title,fn in [('Inspect',self.inspect_job),('Apply',self.apply_job),('Place as layer',self.import_job)]:
@@ -529,13 +533,24 @@ class Editor(QMainWindow):
             selected=self.jobs.currentItem().data(Qt.ItemDataRole.UserRole) if self.jobs.currentItem() else None; self.jobs.clear()
             for job in sorted(self.ws.generation.jobs.values(),key=lambda j:j['created'],reverse=True):
                 if job.get('documentId')!=self.ws.active: continue
-                text=('Applied' if job.get('applied') else job['status'].title())+' · '+job['prompt'][:48]; item=QListWidgetItem(text); item.setData(Qt.ItemDataRole.UserRole,job['id']); item.setToolTip(job.get('error') or job.get('applyError') or job['prompt'])
+                if job.get('creativeContext',{}).get('purpose')=='character': continue
+                text=('Applied' if job.get('applied') else job['status'].title())+' · '+job.get('userPrompt',job['prompt'])[:48]; item=QListWidgetItem(text); item.setData(Qt.ItemDataRole.UserRole,job['id']); item.setToolTip(job.get('error') or job.get('applyError') or job['prompt'])
                 if job.get('result'):
                     im=Image.open(job['result']); im.thumbnail((56,48)); item.setIcon(QIcon(pixmap(im)))
                 self.jobs.addItem(item)
                 if job['id']==selected: self.jobs.setCurrentItem(item)
             if not self.jobs.currentItem() and self.jobs.count(): self.jobs.setCurrentRow(0)
             self.gen_provider_label.setText(f"API provider: {self.ws.settings.values['provider']} · {self.ws.settings.values['model']}")
+            chosen=self.gen_style.currentData(); self.gen_style.blockSignals(True); self.gen_style.clear(); self.gen_style.addItem('No style',None)
+            for style in self.ws.styles.list(): self.gen_style.addItem(style['name'],style['id'])
+            linked=self.ws.projects.for_document(self.ws.active)
+            if linked:
+                project,page=linked; style=project.get('style'); self.gen_style.clear(); self.gen_style.addItem(style['name'] if style else 'No project style',None); self.gen_style.setEnabled(False)
+                names=[c['name'] for c in project.get('characters',[]) if c['id'] in page.get('characterIds',[])]
+                self.gen_context.setText(project['title']+' · '+page['title']+'\nCast: '+(', '.join(names) or 'None'))
+            else:
+                self.gen_style.setEnabled(True); self.gen_style.setCurrentIndex(max(0,self.gen_style.findData(chosen))); self.gen_context.clear()
+            self.gen_style.blockSignals(False)
             self.canvas.refresh()
         finally: self.refreshing=False
 
@@ -600,7 +615,7 @@ class Editor(QMainWindow):
                 control=QDoubleSpinBox(); control.setRange(-100000,100000); control.setDecimals(3); control.setValue(value)
             elif key in ('text','story','artDirection'): control=QPlainTextEdit(str(value)); control.setMinimumSize(320,120)
             else: control=QLineEdit(str(value))
-            layout.addRow(key.replace('_',' ').title(),control); controls[key]=control
+            layout.addRow(re.sub(r'(?<=[a-z])(?=[A-Z])',' ',key).replace('_',' ').title(),control); controls[key]=control
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel); buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject); layout.addRow(buttons)
         if dialog.exec()!=QDialog.DialogCode.Accepted: return None
         return {k:c.isChecked() if isinstance(c,QCheckBox) else c.value() if isinstance(c,QDoubleSpinBox) else c.toPlainText() if isinstance(c,QPlainTextEdit) else c.text() for k,c in controls.items()}
@@ -692,7 +707,21 @@ class Editor(QMainWindow):
             folder=self.ws.settings.root/'clipboard'; folder.mkdir(exist_ok=True); path=folder/(str(uuid.uuid4())+'.png'); im.save(str(path)); self.edit('import_image',{'path':str(path)})
     def choose_references(self):
         paths,_=QFileDialog.getOpenFileNames(self,'Reference images','','Images (*.png *.jpg *.jpeg *.webp)'); self.references=paths; self.ref_label.setText(f'{len(paths)} selected')
-    def generate(self): self.run('generate',{'prompt':self.prompt.toPlainText(),'kind':self.gen_kind.currentData(),'size':self.gen_size.currentText(),'references':self.references})
+    def generation_args(self): return {'prompt':self.prompt.toPlainText(),'kind':self.gen_kind.currentData(),'size':self.gen_size.currentText(),'references':self.references,'styleId':self.gen_style.currentData()}
+    def generate(self): self.run('generate',self.generation_args())
+    def edit_generation_style(self):
+        from .creative_ui import StyleDialog
+        linked=self.ws.projects.for_document(self.ws.active); dialog=StyleDialog(self,linked[0] if linked else None,self.gen_style.currentData())
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            self.refresh()
+            if not linked: self.gen_style.setCurrentIndex(max(0,self.gen_style.findData(dialog.selected_id)))
+    def preview_prompt(self):
+        result=self.run('preview_generation',self.generation_args())
+        if result:
+            dialog=QDialog(self); dialog.setWindowTitle('Generation prompt'); dialog.resize(720,640); layout=QVBoxLayout(dialog)
+            text=QPlainTextEdit(result['prompt']); text.setReadOnly(True); layout.addWidget(text)
+            label=QLabel(f"{len(result['references'])} reference images · "+('Source image included' if self.gen_kind.currentData()!='generate' else 'New image')); layout.addWidget(label)
+            close=QPushButton('Close'); close.clicked.connect(dialog.accept); layout.addWidget(close); dialog.exec()
     def selected_job(self): return self.ws.generation.jobs.get(self.jobs.currentItem().data(Qt.ItemDataRole.UserRole)) if self.jobs.currentItem() else None
     def inspect_job(self):
         job=self.selected_job()

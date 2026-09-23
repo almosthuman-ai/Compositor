@@ -55,6 +55,10 @@ def main():
             rpc('initialize',{'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'distribution-proof','version':'1'}})
             send({'jsonrpc':'2.0','method':'notifications/initialized'})
             catalog=rpc('tools/list',{})
+            fonts=tool('compositor_list_fonts',{})
+            assert any(f['family']=='Arial' for f in fonts['families'])
+            styles=tool('compositor_styles',{})
+            assert any(s['id']=='clean-line-comic' for s in styles['styles'])
             document=tool('compositor_new_document',{'width':64,'height':64,'title':'Distribution proof','background':'white'})
             edited=tool('compositor_edit',{'operation':'add_layer','documentId':document['id'],'expectedRevision':document['revision'],
                 'args':{'kind':'shape','x':16,'y':16,'params':{'width':32,'height':32,'color':'red'}}})
@@ -72,15 +76,23 @@ def main():
             with Image.open(root/'undone.png') as pixels: assert pixels.getpixel((32,32))==(255,255,255,255)
             project=tool('compositor_production',{'operation':'new','args':{'title':'Portable project proof','kind':'book','width':64,'height':64,'pageCount':2}})
             tool('compositor_production',{'operation':'update_page','args':{'projectId':project['id'],'title':'Named page','text':'Portable authored prose'}})
+            tool('compositor_production',{'operation':'set_style','args':{'projectId':project['id'],'styleId':'clean-line-comic'}})
+            cast=tool('compositor_production',{'operation':'add_character','args':{'projectId':project['id'],'name':'Mina','description':'Red coat and round glasses.'}})
+            character=cast['characters'][-1]
+            tool('compositor_production',{'operation':'add_reference','args':{'projectId':project['id'],'characterId':character['id'],'path':str(root/'proof.png')}})
+            tool('compositor_production',{'operation':'update_page','args':{'projectId':project['id'],'characterIds':[character['id']]}})
+            creative=tool('compositor_preview_generation',{'prompt':'Mina walks home.','kind':'edit'})
+            assert 'Image 2: character reference — Mina' in creative['prompt'] and len(creative['references'])==1
             state=tool('compositor_get_workspace',{})
             assert next(d for d in state['documents'] if d['id']==state['activeDocument'])['title']=='Named page'
             tool('compositor_production',{'operation':'save','args':{'projectId':project['id'],'path':str(root/'project.compbook')}})
             reopened=tool('compositor_production',{'operation':'open','args':{'path':str(root/'project.compbook')}})
             assert reopened['id']!=project['id'] and reopened['pages'][0]['text']=='Portable authored prose'
+            assert reopened['style']['id']=='clean-line-comic' and reopened['pages'][0]['characterIds']==[character['id']]
             tool('compositor_production',{'operation':'export','args':{'projectId':project['id'],'path':str(root/'reading.html')}})
             assert 'Portable authored prose' in (root/'reading.html').read_text(encoding='utf-8')
             print(json.dumps({'passed':True,'tools':len(catalog['tools']),'gui':str(distribution/'Compositor.exe'),
-                'verified':['MCP mutation','stale revision rejection','actual canvas image','layered save','exact export pixels','undo','portable production project','reading export']}))
+                'verified':['MCP mutation','stale revision rejection','actual canvas image','layered save','exact export pixels','undo','portable production project','reading export','installed font discovery','style and character prompt composition','portable cast and style']}))
         finally:
             if operator is not None:
                 operator.stdin.close()

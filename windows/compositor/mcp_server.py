@@ -59,13 +59,23 @@ def compositor_export(path:str,documentId:str|None=None,quality:int=95) -> dict:
     return call('export',locals())
 
 @server.tool()
-def compositor_prepare_generation(kind:Literal['edit','patch']='edit',documentId:str|None=None,box:dict|None=None) -> dict:
-    """Capture an immutable full composition or exact selected crop for native subscription image generation. Returns sourcePath to pass as a reference image to the image-generation tool. The embedded chat retains source revision and region so the returned candidate can be placed correctly."""
-    return call('prepare_generation',locals())
+def compositor_styles(operation:Literal['list','save']='list',args:dict|None=None) -> dict:
+    """List reusable style profiles or save a custom style: name/prefix/suffix and optional references [{path,label}]. To update a custom style, pass its id. Built-in styles are customized as new copies. Project styles are snapshots changed through compositor_production."""
+    return call('styles' if operation=='list' else 'save_style',args)
 
 @server.tool()
-def compositor_generate(prompt:str,kind:Literal['generate','edit','patch']='generate',documentId:str|None=None,provider:str|None=None,model:str|None=None,box:dict|None=None,references:list|None=None,size:str='1024x1024',autoApply:bool=False) -> dict:
-    """Start API-key image generation using configured provider. edit sends current composite; patch sends ONLY selected region plus explicit references. Returns durable job. Sources and native candidates are retained. Auto-apply rejects changed documents. Subscription-native generation is available through the embedded ChatGPT conversation when its account supports it."""
+def compositor_preview_generation(prompt:str,kind:Literal['generate','edit','patch']='generate',documentId:str|None=None,styleId:str|None=None,references:list|None=None) -> dict:
+    """Inspect the exact assembled prompt, selected cast, style and ordered references without generating or charging. Project pages automatically use their own style and selected character references. Standalone documents accept styleId."""
+    return call('preview_generation',{k:v for k,v in locals().items() if v is not None})
+
+@server.tool()
+def compositor_prepare_generation(kind:Literal['generate','edit','patch']='edit',documentId:str|None=None,box:dict|None=None,prompt:str='',styleId:str|None=None,purpose:Literal['image','character']='image',characterId:str|None=None) -> dict:
+    """Prepare subscription-native image generation. Pass the user's prompt. Returns the assembled prompt and immutable inputs in provider order, including source composition/crop for edits, project style references and selected characters. Pass ALL inputs to the native image tool, using the returned prompt. purpose character plus characterId prepares a reference sheet for explicit acceptance via compositor_production. The embedded chat links results to source revision, region and creative context."""
+    return call('prepare_generation',{k:v for k,v in locals().items() if v is not None})
+
+@server.tool()
+def compositor_generate(prompt:str,kind:Literal['generate','edit','patch']='generate',documentId:str|None=None,provider:str|None=None,model:str|None=None,box:dict|None=None,references:list|None=None,size:str='1024x1024',autoApply:bool=False,styleId:str|None=None) -> dict:
+    """Start API-key image generation using configured provider. Project pages automatically include their style, direction and selected characters. Standalone documents accept styleId. edit sends current composite; patch sends ONLY selected region plus references. Returns durable job with assembled prompt and creative context. Sources and candidates are retained. Auto-apply rejects changed documents. Subscription-native generation is available through embedded ChatGPT when its account supports it."""
     return call('generate',{k:v for k,v in locals().items() if v is not None})
 
 @server.tool()
@@ -99,8 +109,8 @@ def compositor_project_action(action:str,args:dict) -> dict:
     return call('connector_action',locals())
 
 @server.tool()
-def compositor_production(operation:Literal['list','new','get','select','update','add_page','update_page','reorder_page','remove_page','add_reference','remove_reference','save','open','export','generate','present','close_presentation'],args:dict) -> dict:
-    """Use standalone artwork, comic and book projects, without a Studio service. new: title, kind artwork/comic/book, pageCount, width, height. Other actions use projectId and optional pageId. update: title/story/artDirection. update_page: title/text/prompt/splitY (optional comic panel split). add_page can attach documentId or create blank. reorder_page takes index. add_reference: path/label/role character/style/composition. remove_reference: referenceId. save/open use a .compbook path; export uses a .html or .pdf path. generate combines project direction/story, page prompt and labeled references, with generationKind generate/edit/patch and optional provider/model/size/box. Results remain reviewable candidates. All pages use the same canonical editor documents and operations."""
+def compositor_production(operation:Literal['list','new','get','select','update','add_page','update_page','reorder_page','remove_page','add_reference','remove_reference','save','open','export','generate','present','close_presentation','set_style','update_style','add_character','update_character','remove_character','generate_character','accept_character_reference'],args:dict) -> dict:
+    """Use standalone artwork, comic and book projects, without a Studio service. new: title, kind artwork/comic/book, pageCount, width, height. Other actions use projectId and optional pageId. update: title/story/artDirection. update_page: title/text/prompt/splitY (optional comic panel split) and characterIds for the page cast. set_style: styleId (null clears); snapshots a library style and reference images. update_style: name/prefix/suffix on the project snapshot. add_character: name/description. update_character/remove_character: characterId. add_reference with characterId assigns an image to that character. generate_character: characterId and optional prompt creates a retained sheet candidate. accept_character_reference: characterId/jobId copies a reviewed sheet into the project. add_page can attach documentId or create blank. reorder_page takes index. add_reference: path/label/role character/style/composition. remove_reference: referenceId. save/open use a .compbook path; export uses a .html or .pdf path. generate combines project direction/story, page prompt and labeled references, with generationKind generate/edit/patch and optional provider/model/size/box. Results remain reviewable candidates. All pages use the same canonical editor documents and operations."""
     return call('production',locals())
 
 if __name__=='__main__': server.run()

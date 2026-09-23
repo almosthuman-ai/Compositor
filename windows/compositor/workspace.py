@@ -8,6 +8,7 @@ from .generation import Generation
 from .connectors import StudioConnector
 from .settings import atomic_json
 from .projects import Projects
+from .creative import CreativeLibrary,compose
 
 class Workspace(QObject):
     changed=Signal()
@@ -18,7 +19,7 @@ class Workspace(QObject):
         super().__init__(); self.settings=settings; self.documents={}; self.active=None; self.view={'tool':'move','zoom':1}; self.window=None; self.prepared_generation=None; self.recovered_revisions={}
         self.job_finished.connect(self.finish_job); self.request_received.connect(self.handle_request)
         self.generation=Generation(settings,self.job_finished.emit)
-        self.projects=Projects(self)
+        self.styles=CreativeLibrary(settings); self.projects=Projects(self)
         self.autosave=QTimer(self); self.autosave.setSingleShot(True); self.autosave.setInterval(2000); self.autosave.timeout.connect(self.save_recovery)
         if restore: self.restore_recovery()
 
@@ -39,6 +40,9 @@ class Workspace(QObject):
         if action=='fonts':
             from .fonts import catalog
             return {'families':catalog()}
+        if action=='styles': return {'styles':self.styles.list()}
+        if action=='save_style':
+            result=self.styles.save(a); self.notify(); return result
         if action=='production':
             operation=a['operation']; arguments=a.get('args',{})
             if operation in ('present','close_presentation'):
@@ -90,6 +94,7 @@ class Workspace(QObject):
             self.documents[d.id]=d; self.active=d.id; self.notify(); return d.info()
         d=self.document(a.get('documentId'))
         if action=='document': return d.info()
+        if action=='preview_generation': return self.creative_request(d,a)
         if action=='edit':
             result=d.execute(a['operation'],a.get('args'),a.get('expectedRevision')); self.notify(); return result
         if action=='save':
@@ -122,15 +127,36 @@ class Workspace(QObject):
                 if min(x,y)<0 or min(w,h)<1 or x+w>im.width or y+h>im.height: raise ValueError('Region must fit inside the canvas')
                 box={'x':x,'y':y,'width':w,'height':h}; im=im.crop((x,y,x+w,y+h))
                 if d.selection is not None: d.selection.crop((x,y,x+w,y+h)).save(folder/'selection.png')
-            im.save(folder/'source.png')
-            self.prepared_generation={'documentId':d.id,'sourceRevision':d.revision,'kind':kind,'box':box,'sourcePath':str(folder/'source.png'),'created':time.time()}
+            request=self.creative_request(d,{**a,'prompt':a.get('prompt') or 'Edit the supplied image.','kind':kind})
+            if kind!='generate': im.save(folder/'source.png')
+            references=[]
+            for i,ref in enumerate(request['references']):
+                target=folder/f'reference-{i}.png'
+                with Image.open(ref['path']) as image: image.convert('RGBA').save(target)
+                references.append({**ref,'path':str(target)})
+            source_path=str(folder/'source.png') if kind!='generate' else None
+            self.prepared_generation={'documentId':d.id,'sourceRevision':d.revision,'kind':kind,'box':box,'sourcePath':source_path,'created':time.time(),'prompt':request['prompt'],'userPrompt':request['userPrompt'],'creativeContext':request['creativeContext'],'references':references,'inputs':([source_path] if source_path else [])+[r['path'] for r in references]}
             atomic_json(folder/'source.json',self.prepared_generation); return self.prepared_generation
         if action=='generate':
-            result=self.generation.submit(d,a); self.changed.emit(); return result
+            result=self.generation.submit(d,self.creative_request(d,a)); self.changed.emit(); return result
         if action=='apply_generation':
             result=self.generation.apply(d,a['jobId']); self.notify(); return result
         if action=='connector_push': return self.connector().push(d,a.get('projectId') or d.studio.get('lessonId'),a.get('role','background'),a.get('page',1))
         raise ValueError(f'Unknown action: {action}')
+
+    def creative_request(self,document,args):
+        linked=self.projects.for_document(document.id); context={}
+        if linked:
+            ids=[args['characterId']] if args.get('purpose')=='character' else None
+            context=self.projects.creative_context(*linked,character_ids=ids)
+        # A project style is canonical. A standalone document may choose a library profile per request.
+        if not linked and args.get('styleId'):
+            style=self.styles.get(args['styleId']); context={'style':style,'references':style.get('references',[])}
+        explicit=[r if isinstance(r,dict) else {'path':r,'role':'reference','label':Path(r).stem} for r in args.get('references',[])]
+        context['references']=[*context.get('references',[]),*explicit]
+        result={**args,**compose(args.get('prompt',''),args.get('kind','generate'),**context)}
+        if args.get('purpose')=='character': result['creativeContext'].update(purpose='character',characterId=args['characterId'])
+        return result
 
     def connector(self):
         url=self.settings.values.get('studio_url')

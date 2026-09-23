@@ -35,6 +35,33 @@ class Projects:
     def write(self,project):
         atomic_json(self.folder(project)/'project.json',project)
 
+    def add_reference(self,project,args):
+        role=args.get('role','style')
+        if role not in ('character','style','composition'): raise ValueError('Reference role must be character, style or composition')
+        reference={'id':str(uuid.uuid4()),'role':role,'label':args.get('label') or Path(args['path']).stem}
+        if args.get('characterId'):
+            character=self.character(project,args['characterId']); reference.update(characterId=character['id'],role='character',label=character['name'])
+        if args.get('styleOwned'): reference['styleOwned']=True
+        target=self.folder(project)/'references'/(reference['id']+'.png'); target.parent.mkdir(exist_ok=True)
+        with Image.open(args['path']) as im: ImageOps.exif_transpose(im).convert('RGBA').save(target)
+        reference['file']='references/'+reference['id']+'.png'; project['references'].append(reference)
+        return reference
+
+    def character(self,project,character_id):
+        found=next((c for c in project.get('characters',[]) if c['id']==character_id),None)
+        if found is None: raise ValueError('Choose a character in this project')
+        return found
+
+    def creative_context(self,project,page,character_ids=None):
+        ids=page.get('characterIds',[]) if character_ids is None else character_ids
+        cast=[self.character(project,cid) for cid in ids]
+        references=[]
+        for reference in project['references']:
+            if reference.get('characterId') and reference['characterId'] not in ids: continue
+            label=self.character(project,reference['characterId'])['name'] if reference.get('characterId') else reference['label']
+            references.append({**reference,'label':label,'path':str(self.folder(project)/reference['file'])})
+        return {'style':project.get('style'),'story':project['story'],'direction':project['artDirection'],'characters':cast,'references':references,'project_id':project['id'],'page_id':page['id']}
+
     def info(self,project=None):
         if project is None: return {'activeProject':self.active,'projects':[copy.deepcopy(p) for p in self.items.values()]}
         return copy.deepcopy(project)
@@ -94,6 +121,8 @@ class Projects:
             return self.select(project,page)
         elif action=='update_page':
             page=self.page(project,a.get('pageId'))
+            if 'characterIds' in a:
+                for cid in a['characterIds']: self.character(project,cid)
             if 'splitY' in a and a['splitY'] is not None:
                 d=self.document(project,page)
                 if not 0<int(a['splitY'])<d.height: raise ValueError('Panel split must be inside the page')
@@ -103,6 +132,7 @@ class Projects:
             for key in ('title','text','prompt'):
                 if key in a: page[key]=str(a[key])
             if 'splitY' in a: page['splitY']=None if a['splitY'] is None else int(a['splitY'])
+            if 'characterIds' in a: page['characterIds']=list(dict.fromkeys(a['characterIds']))
         elif action=='reorder_page':
             page=self.page(project,a['pageId']); project['pages'].remove(page); project['pages'].insert(max(0,min(len(project['pages']),int(a['index']))),page)
         elif action=='remove_page':
@@ -111,25 +141,56 @@ class Projects:
             # The document and saved page remain recoverable after removal.
             if project['activePage']==page['id']: project['activePage']=project['pages'][0]['id']
         elif action=='add_reference':
-            role=a.get('role','style')
-            if role not in ('character','style','composition'): raise ValueError('Reference role must be character, style or composition')
-            reference={'id':str(uuid.uuid4()),'role':role,'label':a.get('label') or Path(a['path']).stem}
-            target=self.folder(project)/'references'/(reference['id']+'.png'); target.parent.mkdir(exist_ok=True)
-            with Image.open(a['path']) as im: ImageOps.exif_transpose(im).convert('RGBA').save(target)
-            reference['file']='references/'+reference['id']+'.png'; project['references'].append(reference)
+            self.add_reference(project,a)
         elif action=='remove_reference': project['references']=[r for r in project['references'] if r['id']!=a['referenceId']]
+        elif action=='set_style':
+            style=self.ws.styles.get(a['styleId']) if a.get('styleId') else None
+            # Each project owns its snapshot and image copies; later library edits cannot change it.
+            copied=[]
+            if style:
+                for ref in style.get('references',[]): copied.append(self.add_reference(project,{**ref,'styleOwned':True})['id'])
+                style.pop('references',None)
+                for key in ('prefix','suffix'):
+                    if key in a: style[key]=str(a[key])
+            project['references']=[r for r in project['references'] if not r.get('styleOwned') or r['id'] in copied]
+            project['style']=style
+        elif action=='update_style':
+            if not project.get('style'): raise ValueError('Choose a project style first')
+            for key in ('name','prefix','suffix'):
+                if key in a: project['style'][key]=str(a[key])
+        elif action=='add_character':
+            name=str(a.get('name','')).strip()
+            if not name: raise ValueError('Give this character a name')
+            project.setdefault('characters',[]).append({'id':str(uuid.uuid4()),'name':name,'description':str(a.get('description',''))})
+        elif action=='update_character':
+            character=self.character(project,a['characterId'])
+            if 'name' in a and not str(a['name']).strip(): raise ValueError('Give this character a name')
+            for key in ('name','description'):
+                if key in a: character[key]=str(a[key]).strip()
+        elif action=='remove_character':
+            cid=self.character(project,a['characterId'])['id']
+            project['characters']=[c for c in project['characters'] if c['id']!=cid]
+            project['references']=[r for r in project['references'] if r.get('characterId')!=cid]
+            for page in project['pages']: page['characterIds']=[c for c in page.get('characterIds',[]) if c!=cid]
+        elif action=='generate_character':
+            character=self.character(project,a['characterId']); page=self.page(project)
+            self.select(project,page)
+            prompt=a.get('prompt') or f"Character reference sheet for {character['name']}. Show a full-body front view, a three-quarter view and a close-up of the face on a plain background. Keep the design identical across views, with clear clothing and facial details."
+            return self.ws.dispatch('generate',{**a,'documentId':page['documentId'],'kind':'generate','prompt':prompt,'purpose':'character','characterId':character['id'],'autoApply':False})
+        elif action=='accept_character_reference':
+            character=self.character(project,a['characterId']); job=self.ws.generation.jobs[a['jobId']]
+            if job['status']!='complete' or not job.get('result'): raise ValueError('Wait for the reference image to finish')
+            context=job.get('creativeContext',{})
+            if context.get('projectId')!=project['id'] or context.get('characterId')!=character['id']: raise ValueError('This image was made for another character or project')
+            if any(r.get('generationId')==job['id'] for r in project['references']): raise ValueError('This image is already a character reference')
+            reference=self.add_reference(project,{'path':job['result'],'characterId':character['id']}); reference['generationId']=job['id']
         elif action=='save': return self.save_bundle(project,a['path'])
         elif action=='export': return self.export(project,a['path'])
         elif action=='generate':
             page=self.page(project,a.get('pageId')); self.select(project,page)
             prompt=a.get('prompt') or page['prompt']
             if not prompt.strip(): raise ValueError('Describe the image for this page')
-            context=[project['artDirection'],project['story'],prompt]
-            references=[]
-            for i,reference in enumerate(project['references']):
-                context.append(f"Reference {i+1}: {reference['role']} — {reference['label']}")
-                references.append({'path':str(self.folder(project)/reference['file']),'role':reference['role'],'label':reference['label']})
-            request={**a,'prompt':'\n\n'.join(p for p in context if p),'references':references}
+            request={**a,'prompt':prompt}
             d=self.ws.document(); request.setdefault('size',f'{d.width}x{d.height}')
             request['kind']=a.get('generationKind','generate'); request.pop('projectId',None); request.pop('pageId',None)
             return self.ws.dispatch('generate',request)
