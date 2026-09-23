@@ -42,7 +42,14 @@ jobs:
       - name: Verify packaged GUI and MCP
         shell: pwsh
         run: .venv/Scripts/python.exe windows/verify_distribution.py dist/Compositor
+      - name: Package installer and portable download
+        shell: pwsh
+        run: .venv/Scripts/python.exe windows/package_release.py
       - uses: actions/upload-artifact@v4
         with:
           name: Compositor-Windows-x64
           path: dist/Compositor
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Compositor-Windows-downloads
+          path: dist/releases

@@ -38,6 +38,8 @@ The installed app includes the local renderer and animation encoder. Glitch Temp
 
 ## Run from source
 
+For the packaged app, use the [Windows preview downloads](https://github.com/almosthuman-ai/Compositor/releases/tag/v0.1.0-preview.1) and [getting-started guide](QUICK_START.md). The instructions below are for development.
+
 Install Python 3.11 for Windows, then run:
 
 ```powershell
@@ -56,10 +58,12 @@ First [build and package the animation encoder](encoder/README.md). Its complete
 
 ```powershell
 powershell -File windows/build.ps1
-powershell -File windows/install.ps1
+.venv/Scripts/python.exe windows/package_release.py
 ```
 
-The build creates `dist/Compositor/Compositor.exe` and a console companion, `Compositor-Tools.exe`, for MCP. Keep both beside the `_internal` directory. The installer creates Desktop and Start Menu shortcuts; the installed app does not require Python.
+The build creates `dist/Compositor/Compositor.exe` and a console companion, `Compositor-Tools.exe`, for MCP. Keep both beside the `_internal` directory. Packaging downloads a checksum-verified NSIS compiler and creates a per-user installer, portable ZIP and SHA-256 checksums in `dist/releases`. Both downloads include the complete animation encoder sources. The installer creates Desktop and Start Menu shortcuts; the installed app does not require Python.
+
+`windows/install.ps1` is available for local developer installations. Public users should use the setup download or portable ZIP.
 
 ## ChatGPT in the editor
 

@@ -25,7 +25,7 @@ The public app runs independently of the Axiomatic workspace. General editing, g
 | Configuration | `windows/compositor/settings.py` | Public per-user settings; API keys in Windows Credential Manager or environment; local operator capability in a separate file. No household paths or keys in defaults. |
 | Agent transport | `windows/compositor/server.py`, `windows/compositor/mcp_server.py` | Authenticated loopback command queue plus portable stdio MCP. Inspection returns images from actual document rendering. HTTP work runs on the same Qt owner and rejects stale revisions. |
 | Production connector | `windows/compositor/connectors.py` | Optional Owen & Vic HTTP adapter: project listing, selected image pull, copy-back and existing authoring/generation/presentation/export operations. Never opens its canonical data in a second writer. |
-| Installation | `windows/run.py`, `windows/setup.ps1`, `windows/build.ps1`, `windows/Compositor.spec`, `windows/install.ps1`, `windows/start-desktop.ps1` | Isolated dependencies, standalone GUI and console MCP binaries, per-user installation/shortcuts and independent interactive launch. Single-instance lock precedes recovery and job loading. |
+| Installation | `windows/run.py`, `windows/setup.ps1`, `windows/build.ps1`, `windows/Compositor.spec`, `windows/package_release.py`, `windows/installer.nsi`, `windows/install.ps1`, `windows/start-desktop.ps1` | Isolated dependencies, standalone GUI and console MCP binaries, public per-user NSIS installer and portable ZIP with checksums, plus local developer installation and independent interactive launch. Public packages carry matching encoder sources and a quick-start guide. Uninstall removes only shipped files; artwork and app data remain. Single-instance lock precedes recovery and job loading. |
 | Verification | `windows/tests/` | Pixel contracts, masks, selection, blend alpha, persistence, undo, stale candidates, real Qt pointer input and HTTP-to-UI shared ownership. Tests use temporary stores and fake providers; they spend no image credits. |
 
 ## State and preservation
@@ -44,7 +44,7 @@ Glitch Temple has been exercised on a separately saved editorial cartoon: render
 
 The installed integration preserved all 22 previously open documents, including exact rendered pixels, layer data, active document and dirty state. Its GPT-6-Sol collaborator then authored Temple Transmission through the shipped MCP: a 768×512 generated field with Lens Warp, Signal Echo and Zhuyin, separate editable Consolas typography and shape accents, a retained source/recipe layer, native save, PNG and a completed 16-frame GIF. Inspection of separated frames confirmed changing field pixels and an unchanged title band. The external packaged MCP inspected the same live candidate. Foreground sampling included one one-second visit to Compositor among several other applications; its cause was not established, so this run does not prove zero focus changes. All authored operations used document commands rather than mouse or keyboard automation.
 
-Canvas-engine results are not a claim of Processing equivalence. Public binary release work must provide matching FFmpeg corresponding sources; local packaging collects license texts and provenance.
+Canvas-engine results are not a claim of Processing equivalence. Windows packages include the matching encoder sources, build instructions, license texts and provenance.
 
 Judge progress through actual creative work in the installed app and inspection of saved and exported artifacts. Do not add tests as a routine implementation step or substitute suite totals for designer, artist and comic-creator use. Existing checks cover bounded machine contracts; they do not establish that a workflow is usable or its result is professional.
 
@@ -93,6 +93,7 @@ Remaining upstream feature gaps include automatic subject selection/background r
 - `.venv/Scripts/python.exe windows/run.py --mcp`: stdio MCP connecting to the open app.
 - `.venv/Scripts/python.exe -m pytest windows/tests -q`: focused verification.
 - `powershell -File windows/build.ps1`: standalone Windows distribution in `dist/Compositor`.
+- `.venv/Scripts/python.exe windows/package_release.py`: public setup executable, portable ZIP and checksums in `dist/releases`.
 - `powershell -File windows/install.ps1`: install a versioned local copy and shortcuts.
 - `powershell -File windows/start-desktop.ps1`: independent Windows task launch for agent-operated installation.
 

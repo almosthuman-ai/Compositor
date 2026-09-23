@@ -1,85 +1,50 @@
-# Compositor
+# Compositor for Windows
 
-**Windows edition:** this fork is adding a native Windows 10 editor, general generative editing, ChatGPT collaboration and MCP tools. It is under active development; [Windows setup and current status](windows/README.md) describe what is available and what still needs verification. The original Mac implementation and instructions follow below.
+An open-source image editor for layered artwork, comics, pixel art and glitch art, with a ChatGPT collaborator that can edit the same document you are working on.
 
-Adobe Photoshop costs too much and tools like GIMP don’t feel familiar enough for me to stay in flow. That’s why I built Compositor.
+[Download the Windows preview](https://github.com/almosthuman-ai/Compositor/releases/tag/v0.1.0-preview.1) · [Getting started](windows/QUICK_START.md) · [Full guide](windows/README.md) · [Report an issue](https://github.com/almosthuman-ai/Compositor/issues)
 
-The goal was to create a full-featured image editor that is completely free and open source. I use Photoshop for compositing and post-processing, so Compositor is built around that workflow - with the tools needed to create a pixel-perfect final image.
+![Compositor's Windows editor](windows/docs/editor.png)
 
-Because it’s open source, you can download the Xcode project and add, remove, or modify any feature to fit your workflow.
+## Install
 
-## Features
+Choose **Setup.exe** from the release for a normal installation with Desktop and Start Menu shortcuts. Or extract the entire **Portable.zip** and open `Compositor.exe` inside the Compositor folder. Both downloads include the editor, MCP tools and animation encoder. Windows 10 or later, 64-bit, is required; Python, Node and terminal setup are not.
 
-### Layers
-- Layers and folders, with blend modes and opacity — a folder's opacity dims everything inside it
-- Layer masks: paint, fill, invert, blur and feather them; link or unlink them to transform a mask on its own
-- Clipping masks and folder masks
-- Adjustment layers: Hue/Saturation, Levels, Curves, Exposure, Gradient Map and Grain
-- Layer effects: Stroke, Drop Shadow, Color Overlay, Inner Shadow and Outer Glow, rendered on the GPU and editable at any time
-- Merge Down, Merge Layers and Merge Group (⌘E)
-- Duplicate, rename inline, reorder and nest by drag and drop; Option-drag to duplicate
-- Drag layers between open projects
+The editor works without an account. To collaborate with ChatGPT, open its panel and sign in. Compositor installs the official Codex runtime and connects its editing tools automatically. Available models and subscription image generation depend on your account. API image providers are configured separately.
 
-### Transform
-- Non-destructive move, scale, rotate and flip — images keep their full resolution however small you make them
-- Free distort (⌘-drag a handle), with Shift to lock to an axis
-- Transform several layers, or a whole folder, together
-- Snapping to canvas and layer edges and centers, with guides
-- Exact values for position, size, scale and angle, stepped with the arrow keys
-- Flip Layer and Flip Canvas, horizontal and vertical
+## Make art
 
-### Selections
-- Rectangle and Ellipse Marquee, Freehand and Polygonal Lasso, and the Magic tool — Wand selects by color, Object traces whatever you click (Tab switches)
-- Select Subject, and Expand, Contract and Feather on any selection
-- Add to and subtract from selections, move the outline, or move and duplicate the pixels inside
-- Load a layer's pixels or a mask as a selection
-- Content-Aware Fill, which can also extend an image past its edges
+- **Layered editing:** paint, select, mask, transform and combine images with editable text, shapes, adjustments and blend modes. Save `.compwin` files to keep the layers.
+- **Pixel art:** draw with a hard-edge pencil, convert larger images onto a logical pixel grid, limit the palette and export with whole-number nearest-neighbor enlargement. Conversion gives you a starting point for pencil cleanup.
+- **Glitch Temple:** combine Tai Mei's 18 Canvas effects, retain the original image and recipe, and export GIF or MP4 loops. Pixel finishing can keep an animation within the document palette.
+- **Comics and books:** organize pages, attach character references and give a project a reusable visual style. Inspect and revise the instructions assembled for image generation. Portable `.compbook` files carry pages and references together.
+- **AI collaboration:** ask the embedded ChatGPT collaborator to inspect and edit your artwork, or connect an external MCP client to the same tools. Document commands work without moving your mouse or typing through the desktop.
 
-### Painting and retouching
-- Brush with size, hardness, opacity and smoothing, in Paint or Erase mode (B and E), and Shift for straight lines
-- Spot Healing Brush (content-aware)
-- Clone Stamp, aligned or not, sampling one layer or all of them
-- Blur tool, on pixels or masks
-- Gradient tool and Shape tool (rectangles, rounded rectangles, ellipses and lines), which stay editable rather than being rasterized
-- Type tool (T): inline multiline editing in draggable, resizable paragraph boxes; font, size, color, alignment and spacing in the tool header; transform text and use it as a clipping mask
-- Eyedropper and a full color picker
+The optional Owen & Vic Studio connector can exchange artwork with an existing studio service. General editing and generation work without it.
 
-### Adjustments and filters
-- Levels (with Auto), Curves, Hue/Saturation, Exposure, Gradient Map, Grain and Invert
-- Gaussian Blur and Motion Blur that spread past a layer's edges
-- Add Noise, Lens Correction and Remove Background
-- Live previews, limited to the selection when there is one
+## Preview status
 
-### Canvas and files
-- Multiple projects in tabs
-- Rulers (⌘R), guides dragged from them, a layout grid, and Snap To for guides, grid, layers and document bounds
-- Crop with snapping, and Option for symmetric cropping
-- Canvas Size and Image Size
-- Sharp high-quality downsampling when zoomed out, and a pixel grid when zoomed in
-- Import JPEG, PNG, HEIC, TIFF and Photoshop PSD (8-bit RGB only; not PSB or CMYK). PSD folders, masks, a subset of blend modes, and fill rectangles/ellipses stay editable; text and other vectors become pixels. A conversion report is shown before anything is applied.
-- Export JPEG with a live preview (⇧⌥⌘S); Copy Merged
-- Photoshop-style keyboard shortcuts throughout, remappable in Edit > Keyboard Shortcuts
-- Automatic updates, signed and notarized
+This Windows edition is under active development. It does not yet cover every Photoshop or upstream Compositor feature. PSD imports preserve supported layers and report conversions; retain your originals and inspect the result. Automatic subject selection, perspective distortion, independently transformed masks and GPU rendering remain unfinished. See the [module map](module-manifest.md) for current implementation boundaries.
 
-## Requirements
+Settings, recovery and ChatGPT history live under `%LOCALAPPDATA%/Compositor`, separately from the program. Save your artwork explicitly as `.compwin` or `.compbook` files to keep portable copies.
 
-- macOS 26.5 or later
-- Xcode 26 or later (to build from source)
+## Build and contribute
 
-## Building
+The Windows implementation lives in `windows/`. Follow the [source setup and build guide](windows/README.md#run-from-source). Build the animation encoder from the [pinned sources](windows/encoder/README.md), then run:
 
-Open `Compositor.xcodeproj` and run the **Compositor** scheme.
+```powershell
+powershell -File windows/build.ps1
+.venv/Scripts/python.exe windows/package_release.py
+```
 
-## Releasing
+The packaging script creates the installer, portable ZIP and checksums in `dist/releases`. The Windows workflow builds these same downloads. The [module map](module-manifest.md) explains the shared document owner, native interface, generation and MCP connection.
 
-`scripts/release.sh` builds a Release version, signs it with Developer ID, notarizes and staples it, and packages it into `dist/Compositor-<version>.dmg`.
+## Credits and license
 
-It needs, all kept outside this repository:
+Original [Compositor](https://github.com/robbietilton/Compositor) by **Robbie Tilton**. [Glitch Temple](https://github.com/taimei886/glitch-temple) by **Tai Mei**. Windows edition developed by **[Legion](https://legion.tw)** and contributors.
 
-- a **Developer ID Application** certificate in the login keychain
-- notarization credentials saved with `xcrun notarytool store-credentials "compositor-notary" …`
-- [`create-dmg`](https://github.com/create-dmg/create-dmg) (`brew install create-dmg`)
+The editor is [MIT licensed](LICENSE). Dependencies retain their own licenses; [third-party notices](windows/THIRD_PARTY_NOTICES.md) and license texts ship with the downloads. The separate animation encoder includes its complete corresponding source archive and build instructions.
 
-## License
+The original Apple source remains in `Compositor/`, with its [Mac documentation preserved here](docs/upstream-macos.md). Windows features and installation instructions belong to this fork's guide.
 
-MIT — see [LICENSE](LICENSE).
+Legion builds software around the way you actually work. [Show us the ugly workflow.](https://legion.tw)
