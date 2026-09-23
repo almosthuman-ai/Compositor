@@ -197,11 +197,11 @@ class Document:
                 self.layers[index-1:index+1]=[Layer(name=below.name,image=im,parent=below.parent)]; self.active=self.layers[index-1].id
         elif op=='selection': self._selection(a)
         elif op=='mask':
-            l=self.layer(a.get('layerId')); kind=a.get('mode','selection'); im=pixels.content(l)
+            l=self.layer(a.get('layerId')); kind=a.get('mode','selection'); mask_size=size if l.kind in ('group','adjustment') else pixels.content(l).size
             if kind=='remove': l.mask=None
-            elif kind=='invert': l.mask=ImageOps.invert(l.mask or Image.new('L',im.size,255))
-            elif kind=='blur': l.mask=(l.mask or Image.new('L',im.size,255)).filter(ImageFilter.GaussianBlur(a.get('radius',5)))
-            elif kind in ('white','black'): l.mask=Image.new('L',im.size,255 if kind=='white' else 0)
+            elif kind=='invert': l.mask=ImageOps.invert(l.mask or Image.new('L',mask_size,255))
+            elif kind=='blur': l.mask=(l.mask or Image.new('L',mask_size,255)).filter(ImageFilter.GaussianBlur(a.get('radius',5)))
+            elif kind in ('white','black'): l.mask=Image.new('L',mask_size,255 if kind=='white' else 0)
             else:
                 if self.selection is None: raise ValueError('Make a selection first')
                 if l.kind not in ('group','adjustment'): self.raster(l)
@@ -323,11 +323,11 @@ class Document:
         for p in points:
             x,y=p[:2]; pressure=float(p[2]) if len(p)>2 else 1; r=radius*pressure
             if last is not None:
-                dist=math.hypot(x-last[0],y-last[1]); steps=max(1,math.ceil(dist/max(1,r*.3)))
+                dist=math.hypot(x-last[0],y-last[1]); steps=max(1,math.ceil(dist/max(1,min(r,last[2])*.3)))
                 for t in np.linspace(0,1,steps+1):
-                    xx,yy=last[0]+t*(x-last[0]),last[1]+t*(y-last[1]); d.ellipse((xx-r,yy-r,xx+r,yy+r),fill=255)
+                    xx,yy=last[0]+t*(x-last[0]),last[1]+t*(y-last[1]); rr=last[2]+t*(r-last[2]); d.ellipse((xx-rr,yy-rr,xx+rr,yy+rr),fill=255)
             else: d.ellipse((x-r,y-r,x+r,y+r),fill=255)
-            last=(x,y)
+            last=(x,y,r)
         if hardness<1: mask=mask.filter(ImageFilter.GaussianBlur(radius*(1-hardness)*.45))
         return mask.point(lambda v:round(v*opacity))
 

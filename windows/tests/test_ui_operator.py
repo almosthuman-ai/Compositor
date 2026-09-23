@@ -63,3 +63,80 @@ def test_editor_chrome_changes_real_color_visibility_and_dimensions(tmp_path):
     window.set_tool('brush'); assert window.tool_actions['brush'].isChecked()
     assert all(not action.icon().isNull() for action in window.tool_actions.values())
     window.close(); ws.generation.pool.shutdown()
+
+
+def test_live_paint_is_visible_before_commit_and_escape_keeps_history_clean(tmp_path):
+    application=app(); ws=Workspace(Settings(tmp_path),restore=False); window=Editor(ws)
+    ws.dispatch('new',{'width':128,'height':128}); window.show(); application.processEvents(); window.canvas.fit()
+    window.set_tool('brush'); window.color='#ff0000'; window.hardness.setValue(100)
+    center=window.canvas.mapFromScene(64,64); revision=ws.document().revision
+    QTest.mousePress(window.canvas.viewport(),Qt.MouseButton.LeftButton,pos=center); application.processEvents()
+    assert ws.document().revision==revision
+    assert ws.document().render().getpixel((64,64))==(255,255,255,255)
+    image=window.canvas.viewport().grab().toImage()
+    assert image.pixelColor(center).name()=='#ff0000'
+    assert ws.state()['view']['gesture']['status']=='preview'
+    QTest.keyClick(window.canvas,Qt.Key.Key_Escape); application.processEvents()
+    assert ws.document().revision==revision and 'gesture' not in ws.view
+    assert window.canvas.viewport().grab().toImage().pixelColor(center).name()=='#ffffff'
+    QTest.mouseRelease(window.canvas.viewport(),Qt.MouseButton.LeftButton,pos=center)
+    QTest.mousePress(window.canvas.viewport(),Qt.MouseButton.LeftButton,pos=center)
+    QTest.mouseMove(window.canvas.viewport(),center+QPoint(25,0)); QTest.qWait(35)
+    QTest.mouseRelease(window.canvas.viewport(),Qt.MouseButton.LeftButton,pos=center+QPoint(25,0)); application.processEvents()
+    assert ws.document().revision==revision+1
+    assert ws.document().render().getpixel((64,64))==(255,0,0,255)
+    ws.dispatch('edit',{'operation':'undo'}); assert ws.document().render().getpixel((64,64))==(255,255,255,255)
+    window.close(); ws.generation.pool.shutdown()
+
+
+def test_agent_edit_cancels_pending_human_stroke_and_erase_reveals_checker(tmp_path):
+    application=app(); ws=Workspace(Settings(tmp_path),restore=False); window=Editor(ws)
+    ws.dispatch('new',{'width':128,'height':128}); window.show(); application.processEvents(); window.canvas.fit()
+    window.set_tool('erase'); window.hardness.setValue(100); center=window.canvas.mapFromScene(64,64)
+    QTest.mousePress(window.canvas.viewport(),Qt.MouseButton.LeftButton,pos=center); application.processEvents()
+    assert window.canvas.viewport().grab().toImage().pixelColor(center).name()!='#ffffff'
+    assert ws.document().render().getpixel((64,64))[3]==255
+    ws.dispatch('edit',{'operation':'fill','args':{'color':'blue'}}); revision=ws.document().revision
+    assert window.canvas.gesture is None
+    QTest.mouseRelease(window.canvas.viewport(),Qt.MouseButton.LeftButton,pos=center)
+    assert ws.document().revision==revision and ws.document().render().getpixel((64,64))==(0,0,255,255)
+    assert window.canvas.viewport().grab().toImage().pixelColor(center).name()=='#0000ff'
+    window.close(); ws.generation.pool.shutdown()
+
+
+def test_tablet_events_deliver_pressure_to_the_same_single_undo_stroke(tmp_path):
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QTabletEvent,QPointingDevice,QInputDevice
+    application=app(); ws=Workspace(Settings(tmp_path),restore=False); window=Editor(ws)
+    ws.dispatch('new',{'width':160,'height':100}); window.show(); application.processEvents(); window.canvas.fit()
+    window.set_tool('brush'); window.color='#ff0000'; window.brush_size.setValue(24); window.hardness.setValue(100)
+    device=QPointingDevice('Test pen',42,QInputDevice.DeviceType.Stylus,QPointingDevice.PointerType.Pen,QInputDevice.Capability.Position|QInputDevice.Capability.Pressure,1,1)
+    before=ws.document().revision
+    for kind,x,pressure,button,buttons in [(QEvent.Type.TabletPress,20,.1,Qt.MouseButton.LeftButton,Qt.MouseButton.LeftButton),(QEvent.Type.TabletMove,120,1,Qt.MouseButton.NoButton,Qt.MouseButton.LeftButton),(QEvent.Type.TabletRelease,120,0,Qt.MouseButton.LeftButton,Qt.MouseButton.NoButton)]:
+        point=window.canvas.mapFromScene(x,50)
+        event=QTabletEvent(kind,device,point,window.canvas.viewport().mapToGlobal(point),pressure,0,0,0,0,0,Qt.KeyboardModifier.NoModifier,button,buttons)
+        application.sendEvent(window.canvas.viewport(),event)
+    assert ws.document().revision==before+1
+    assert ws.document().render().getpixel((30,58))==(255,255,255,255)
+    assert ws.document().render().getpixel((112,58))==(255,0,0,255)
+    ws.dispatch('edit',{'operation':'undo'}); assert ws.document().render().getpixel((112,58))==(255,255,255,255)
+    window.close(); ws.generation.pool.shutdown()
+
+
+def test_fractional_zoom_preview_has_no_patch_seam_and_matches_release(tmp_path):
+    import numpy as np
+    from PySide6.QtGui import QImage
+    application=app(); ws=Workspace(Settings(tmp_path),restore=False); window=Editor(ws)
+    ws.dispatch('new',{'width':1024,'height':768}); window.show(); application.processEvents()
+    window.canvas.resetTransform(); window.canvas.scale(.73,.73); window.set_tool('brush')
+    window.brush_size.setValue(8); window.hardness.setValue(100); window.color='#ff0000'; application.processEvents()
+    def grab():
+        image=window.canvas.viewport().grab().toImage().convertToFormat(QImage.Format.Format_RGBA8888)
+        return np.array(image.bits()).reshape(image.height(),image.width(),4).copy()
+    before=grab(); point=window.canvas.mapFromScene(512,384)
+    QTest.mousePress(window.canvas.viewport(),Qt.MouseButton.LeftButton,pos=point); application.processEvents(); during=grab()
+    ys,xs=np.where(np.any(before!=during,axis=2))
+    assert max(abs(xs-point.x()).max(),abs(ys-point.y()).max())<=5
+    QTest.mouseRelease(window.canvas.viewport(),Qt.MouseButton.LeftButton,pos=point); application.processEvents()
+    assert np.array_equal(during,grab())
+    window.close(); ws.generation.pool.shutdown()

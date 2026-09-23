@@ -1,14 +1,15 @@
 """Native Windows art editor. Menus, pointer tools and MCP share Workspace commands."""
 from pathlib import Path
 import html, json, math
-from PySide6.QtCore import Qt, QRectF, QPointF, QSize, QTimer, QUrl
-from PySide6.QtGui import QAction, QActionGroup, QColor, QPainter, QPen, QBrush, QPixmap, QImage, QPainterPath, QIcon, QKeySequence, QDesktopServices
+from PySide6.QtCore import Qt, QRectF, QPointF, QSize, QTimer, QUrl, QEvent
+from PySide6.QtGui import QAction, QActionGroup, QColor, QPainter, QPen, QBrush, QPixmap, QImage, QPainterPath, QIcon, QKeySequence, QDesktopServices, QMouseEvent
 from PySide6.QtWidgets import (QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QSplitter,QTabWidget,QTabBar,QDockWidget,QToolBar,QLabel,QPushButton,QToolButton,QComboBox,QDoubleSpinBox,QSpinBox,QSlider,QLineEdit,QPlainTextEdit,QTextBrowser,QListWidget,QListWidgetItem,QGraphicsView,QGraphicsScene,QGraphicsPixmapItem,QGraphicsPathItem,QFileDialog,QColorDialog,QInputDialog,QMessageBox,QDialog,QDialogButtonBox,QCheckBox,QScrollArea,QAbstractItemView)
 from PIL import Image
 from . import pixels
 from .chrome import icon, icon_button, Ruler, ColorPanel, LayerDelegate, configure_application
 from .chrome import EditorComboBox as QComboBox
 from PySide6.QtWidgets import QGridLayout, QSizePolicy, QFrame
+from .gesture import EditPreview
 
 STYLE='''
 QMainWindow,QDialog { background:#303030; color:#dedede; }
@@ -64,9 +65,17 @@ QLabel#sectionLabel { color:#c7c7c7; font-weight:600; padding:4px 0; }
 def pixmap(image):
     im=image.convert('RGBA'); return QPixmap.fromImage(QImage(im.tobytes(),im.width,im.height,im.width*4,QImage.Format.Format_RGBA8888).copy())
 
+class ArtworkItem(QGraphicsPixmapItem):
+    def __init__(self): super().__init__(); self.preview_canvas=None
+    def paint(self,painter,option,widget=None):
+        if self.preview_canvas is not None: painter.drawPixmap(0,0,self.preview_canvas)
+        else: super().paint(painter,option,widget)
+
 class Canvas(QGraphicsView):
     def __init__(self,window):
-        super().__init__(); self.window=window; self.ws=window.ws; self.setScene(QGraphicsScene(self)); self.art=QGraphicsPixmapItem(); self.scene().addItem(self.art)
+        super().__init__(); self.window=window; self.ws=window.ws; self.setScene(QGraphicsScene(self)); self.art=ArtworkItem(); self.scene().addItem(self.art)
+        self.preview_box=None; self.art.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+        self.gesture=None; self.preview_timer=QTimer(self); self.preview_timer.setSingleShot(True); self.preview_timer.setInterval(24); self.preview_timer.timeout.connect(self.render_preview)
         self.overlay=QGraphicsPathItem(); self.overlay.setZValue(2); self.scene().addItem(self.overlay)
         pen=QPen(QColor('#8ac5ff'),1,Qt.PenStyle.DashLine); pen.setCosmetic(True); self.overlay.setPen(pen)
         tile=QPixmap(24,24); tile.fill(QColor('#747780')); p=QPainter(tile); p.fillRect(0,0,12,12,QColor('#999ca4')); p.fillRect(12,12,12,12,QColor('#999ca4')); p.end()
@@ -80,6 +89,17 @@ class Canvas(QGraphicsView):
         for ruler in getattr(self.window,'rulers',[]): ruler.update()
         if hasattr(self.window,'zoom_label'): self.window.zoom_label.setText(f'{self.transform().m11()*100:.0f}%')
 
+    def viewportEvent(self,event):
+        routes={QEvent.Type.TabletPress:(QEvent.Type.MouseButtonPress,self.mousePressEvent),QEvent.Type.TabletMove:(QEvent.Type.MouseMove,self.mouseMoveEvent),QEvent.Type.TabletRelease:(QEvent.Type.MouseButtonRelease,self.mouseReleaseEvent)}
+        if event.type() in routes:
+            kind,handler=routes[event.type()]
+            if event.type()!=QEvent.Type.TabletRelease: self.pressure=max(0,min(1,event.pressure()))
+            mouse=QMouseEvent(kind,event.position(),event.globalPosition(),event.button(),event.buttons(),event.modifiers())
+            handler(mouse)
+            if event.type()==QEvent.Type.TabletRelease: self.pressure=1
+            event.accept(); return True
+        return super().viewportEvent(event)
+
     def resizeEvent(self,event):
         super().resizeEvent(event); self.update_view_chrome()
 
@@ -92,8 +112,11 @@ class Canvas(QGraphicsView):
             d=self.ws.document(); painter.fillRect(QRectF(0,0,d.width,d.height),self.checker)
 
     def refresh(self):
+        if self.gesture and (self.ws.active!=self.gesture.document_id or self.ws.document().revision!=self.gesture.revision or self.ws.document().active!=self.gesture.layer_id):
+            self.cancel_gesture('The document changed; the unfinished stroke was cancelled.')
         if not self.ws.active: self.art.setPixmap(QPixmap()); return
         d=self.ws.document(); changed=d.id!=self.document_id; self.document_id=d.id
+        if changed: self.last_stroke=None
         self.art.setPixmap(pixmap(d.render())); self.scene().setSceneRect(QRectF(-120,-120,d.width+240,d.height+240)); self.selection_overlay()
         if changed: self.fit()
 
@@ -131,6 +154,8 @@ class Canvas(QGraphicsView):
         event.accept()
 
     def keyPressEvent(self,event):
+        if event.key()==Qt.Key.Key_Escape and self.start is not None:
+            self.cancel_gesture('Stroke cancelled.'); event.accept(); return
         if event.key()==Qt.Key.Key_Space: self.space=True; self.setCursor(Qt.CursorShape.OpenHandCursor); event.accept(); return
         super().keyPressEvent(event)
     def keyReleaseEvent(self,event):
@@ -140,6 +165,7 @@ class Canvas(QGraphicsView):
     def mousePressEvent(self,event):
         if not self.ws.active: return
         if event.button()==Qt.MouseButton.MiddleButton or self.space or self.window.tool=='hand':
+            if self.start is not None: self.cancel_gesture()
             self.pan=True; self.pan_point=event.position(); self.setCursor(Qt.CursorShape.ClosedHandCursor); return
         if event.button()!=Qt.MouseButton.LeftButton: return
         point=self.mapToScene(event.position().toPoint()); self.start=point; self.end=point; self.points=[[point.x(),point.y(),self.pressure]]
@@ -147,6 +173,18 @@ class Canvas(QGraphicsView):
         self.source_document_id=self.ws.active
         self.move_mode='translate'
         tool=self.window.tool
+        if tool in ('brush','erase'):
+            try:
+                layer=self.ws.document().layer()
+                if layer.locked: raise ValueError('Layer is locked')
+                if layer.kind in ('group','adjustment') and not self.window.mask_target.isChecked(): raise ValueError('Choose a pixel layer or paint its mask')
+                args={'size':self.window.brush_size.value(),'opacity':self.window.brush_opacity.value()/100,'hardness':self.window.hardness.value()/100,'color':self.window.color}
+                if self.window.mask_target.isChecked(): args.update(target='mask',maskValue=0 if tool=='erase' else 255)
+                self.gesture=EditPreview(self.ws.document(),tool,args); self.stroke_shift=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                self.ws.view['gesture']={'documentId':self.source_document_id,'sourceRevision':self.source_revision,'layerId':layer.id,'operation':tool,'status':'preview'}
+                self.window.statusBar().showMessage('Painting · Esc to cancel'); self.render_preview()
+            except Exception as error: self.cancel_gesture(str(error))
+            return
         if tool=='eyedropper':
             d=self.ws.document(); x,y=int(point.x()),int(point.y())
             if 0<=x<d.width and 0<=y<d.height: self.window.color=QColor(*d.render().getpixel((x,y))).name(); self.window.update_color()
@@ -180,6 +218,10 @@ class Canvas(QGraphicsView):
             delta=event.position()-self.pan_point; self.pan_point=event.position(); self.horizontalScrollBar().setValue(self.horizontalScrollBar().value()-int(delta.x())); self.verticalScrollBar().setValue(self.verticalScrollBar().value()-int(delta.y())); return
         if self.start is None: return
         self.end=point; tool=self.window.tool; path=QPainterPath()
+        if self.gesture:
+            self.points.append([point.x(),point.y(),self.pressure]); self.stroke_shift=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            if not self.preview_timer.isActive(): self.preview_timer.start()
+            return
         if tool in ('brush','erase','clone','heal','blur_brush','lasso'):
             self.points.append([point.x(),point.y(),self.pressure]); path.moveTo(self.start)
             for x,y,*_ in self.points: path.lineTo(x,y)
@@ -199,6 +241,15 @@ class Canvas(QGraphicsView):
     def mouseReleaseEvent(self,event):
         if self.pan: self.pan=False; self.unsetCursor(); return
         if self.start is None: return
+        if self.gesture:
+            gesture=self.gesture; point=self.mapToScene(event.position().toPoint()); self.points.append([point.x(),point.y(),self.pressure])
+            self.stroke_shift=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier); points=self.stroke_points()
+            self.clear_preview(); self.start=None
+            if self.ws.active!=gesture.document_id or self.ws.document().active!=gesture.layer_id:
+                self.window.statusBar().showMessage('The active layer changed; the unfinished stroke was cancelled.'); return
+            result=self.window.edit(gesture.operation,{**gesture.arguments,'points':points},expected=gesture.revision)
+            if result: self.last_stroke=points[-1]; self.window.statusBar().clearMessage()
+            self.selection_overlay(); return
         start=self.start; end=self.mapToScene(event.position().toPoint()); self.start=None; tool=self.window.tool
         if self.ws.active!=self.source_document_id:
             self.window.statusBar().showMessage('The active document changed during this gesture. Try again on the intended page.'); self.selection_overlay(); return
@@ -232,6 +283,33 @@ class Canvas(QGraphicsView):
         elif tool=='gradient':
             d=self.ws.document(); self.window.edit('add_layer',{'kind':'gradient','name':'Gradient','params':{'width':d.width,'height':d.height,'start':[start.x(),start.y()],'end':[end.x(),end.y()],'color':self.window.color,'endColor':self.window.background_color,'radial':self.window.radial.isChecked()}})
         self.selection_overlay()
+
+    def stroke_points(self):
+        return [self.last_stroke,self.points[-1]] if self.stroke_shift and self.last_stroke else self.points
+
+    def clear_preview(self):
+        self.preview_timer.stop(); self.gesture=None; self.ws.view.pop('gesture',None)
+        self.art.preview_canvas=None; self.preview_box=None; self.art.update()
+
+    def cancel_gesture(self,message=None):
+        self.clear_preview(); self.start=None; self.points=[]; self.selection_overlay()
+        if message: self.window.statusBar().showMessage(message,6000)
+
+    def render_preview(self):
+        if not self.gesture: return
+        try:
+            result=self.gesture.render(self.stroke_points())
+            if result is None:
+                self.art.preview_canvas=None; self.preview_box=None; self.art.update(); return
+            box,im=result
+            if self.art.preview_canvas is None: self.art.preview_canvas=self.art.pixmap().copy()
+            painter=QPainter(self.art.preview_canvas); painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            if self.preview_box is not None:
+                x,y,right,bottom=self.preview_box; rect=QRectF(x,y,right-x,bottom-y)
+                painter.drawPixmap(rect,self.art.pixmap(),rect)
+            painter.drawPixmap(box[0],box[1],pixmap(im)); painter.end()
+            self.preview_box=box; self.art.update()
+        except Exception as error: self.cancel_gesture(str(error))
 
     def dragEnterEvent(self,event):
         if event.mimeData().hasUrls(): event.acceptProposedAction()
@@ -398,6 +476,7 @@ class Editor(QMainWindow):
         except Exception as e: self.statusBar().showMessage(str(e),18000); QMessageBox.warning(self,'Compositor',str(e)); return None
     def edit(self,operation,args=None,expected=None): return self.run('edit',{'operation':operation,'args':args or {},'expectedRevision':expected})
     def set_tool(self,key):
+        if self.canvas.start is not None: self.canvas.cancel_gesture()
         self.tool=key; self.tool_actions[key].setChecked(True); self.update_tool_options(); self.canvas.selection_overlay(); self.statusBar().showMessage(self.tool_actions[key].toolTip(),3000)
         self.canvas.setCursor(Qt.CursorShape.OpenHandCursor if key=='hand' else Qt.CursorShape.ArrowCursor if key=='move' else Qt.CursorShape.CrossCursor)
     def update_tool_options(self):
