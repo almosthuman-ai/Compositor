@@ -2,9 +2,17 @@
 from pathlib import Path
 import base64, copy, html, json, os, shutil, sys, time, uuid
 from PySide6.QtCore import QObject, Signal, QProcess, QProcessEnvironment, QUrl, QTimer
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QTextDocument, QGuiApplication
 from PIL import Image
 from .settings import atomic_json
+
+def message_html(role,text):
+    label='You' if role=='user' else 'ChatGPT'
+    if role=='user': body=html.escape(text).replace('\n','<br>')
+    else:
+        document=QTextDocument(); document.setDefaultFont(QGuiApplication.font()); document.setMarkdown(text)
+        markup=document.toHtml(); body=markup.split('<body',1)[1].split('>',1)[1].rsplit('</body>',1)[0]
+    return '<b>'+label+'</b><br>'+body
 
 def editor_mcp_config(settings):
     if getattr(sys,'frozen',False): command=str(Path(sys.executable).with_name('Compositor-Tools.exe')); args=['--mcp']
@@ -13,13 +21,14 @@ def editor_mcp_config(settings):
 
 def runtime_command(configured=None):
     path=configured or shutil.which('codex.exe') or shutil.which('codex.cmd') or shutil.which('codex')
-    if not path: raise RuntimeError('Install Codex to enable ChatGPT sign-in: npm install -g @openai/codex')
+    if not path: raise RuntimeError('ChatGPT support needs to be installed')
     path=Path(path)
     if path.suffix.lower() in ('.cmd','.ps1'):
         script=path.parent/'node_modules/@openai/codex/bin/codex.js'
         node=shutil.which('node')
         if script.exists() and node: return node,[str(script)]
-        raise RuntimeError('Select the Codex executable in Settings, or install the official @openai/codex package')
+        raise RuntimeError('ChatGPT support needs to be repaired')
+    if not path.is_file(): raise RuntimeError('ChatGPT support needs to be repaired')
     return str(path),[]
 
 class ChatSession(QObject):
@@ -31,6 +40,7 @@ class ChatSession(QObject):
     account_changed=Signal()
     question=Signal(dict)
     questions_cleared=Signal()
+    message_sent=Signal(str)
     def __init__(self,workspace,parent=None):
         super().__init__(parent); self.ws=workspace; self.owner=parent; self.pending={}; self.sequence=0; self.buffer=b''; self.initialized=False; self.busy=False; self.thread=None; self.turn=None; self.account=None; self.model=None; self.model_options=[]; self.after_ready=[]; self.message_fragments={}; self.active_document=None; self.source_revision=None
         self.root=workspace.settings.root/'chat'; self.root.mkdir(exist_ok=True); self.home=self.root/'codex'; self.home.mkdir(exist_ok=True)
@@ -50,6 +60,8 @@ class ChatSession(QObject):
         self.watchdog=QTimer(self); self.watchdog.setInterval(5000); self.watchdog.timeout.connect(self.expire_requests); self.watchdog.start()
         self.last_stderr=''; self.native_sources={}; self.turn_started_at=0
         self.requested_generation=None; self.generation_waiting=False
+        self.waiting_message=None; self.login_pending=False; self.stop_requested=False
+        self.request_started_at=None; self.last_activity=time.monotonic()
         self.stream_timer=QTimer(self); self.stream_timer.setInterval(100); self.stream_timer.timeout.connect(self.flush_stream); self.stream_timer.start(); self.stream_dirty=False
 
     def configure_mcp(self):
@@ -82,46 +94,49 @@ class ChatSession(QObject):
         self.ready.emit()
         waiting,self.after_ready=self.after_ready,[]
         for fn in waiting: fn()
+        if getattr(self,'waiting_message',None): self.flush_message()
     def login(self):
         if not self.initialized or not self.account_checked: self.after_ready.append(self.login); return
         if self.account: self.status.emit('Already signed in'); return
+        if self.login_pending: return
+        self.login_pending=True
         self.rpc('account/login/start',{'type':'chatgpt','useHostedLoginSuccessPage':True},self.login_started)
     def login_started(self,result):
         url=result.get('authUrl')
         if url: QDesktopServices.openUrl(QUrl(url)); self.status.emit('Finish signing in in your browser')
         elif result.get('verificationUrl'): self.display.emit(html.escape(result['verificationUrl']+' · '+result.get('userCode','')))
-    def logout(self): self.rpc('account/logout',{},lambda _:self.account_response({'account':None}))
+    def logout(self):
+        self.interrupt(); self.rpc('account/logout',{},lambda _:self.account_response({'account':None}))
 
     def send_generation(self,prepared):
-        if self.busy or self.generation_waiting: raise ValueError('Wait for the current ChatGPT request or stop it before generating another image')
-        if not self.initialized or not self.account_checked:
-            self.generation_waiting=True
-            def after_connection():
-                self.generation_waiting=False
-                try: self.send_generation(prepared)
-                except Exception as error: self.status.emit(str(error)); self.display.emit(html.escape(str(error)))
-            self.after_ready.append(after_connection); self.status.emit('Connecting to ChatGPT…')
-            return {'route':'chatgpt','status':'connecting','documentId':prepared['documentId']}
-        if not self.account:
-            self.login(); raise ValueError('Finish signing in to ChatGPT, then choose Generate again')
-        text=prepared['userPrompt']; self.send_message(text,generation=prepared)
-        self.display.emit('<b>You</b><br>'+html.escape(text).replace('\n','<br>'))
-        return {'route':'chatgpt','status':'requested','documentId':prepared['documentId']}
+        status=self.send_message(prepared['userPrompt'],generation=prepared)
+        return {'route':'chatgpt','status':status,'documentId':prepared['documentId']}
 
-    def send_message(self,text,generation=None):
-        if not self.initialized or not self.account_checked: self.after_ready.append(lambda:self.send_message(text,generation)); return
-        if self.busy: raise ValueError('Wait for the current reply or stop it before sending another message')
-        if not self.account: self.login(); raise ValueError('Finish signing in, then send your message')
-        self.busy=True; self.status.emit('Starting…'); self.requested_generation=copy.deepcopy(generation)
-        self.active_document=generation['documentId'] if generation else self.ws.active
-        self.source_revision=generation['sourceRevision'] if generation else self.ws.document().revision if self.ws.active else None
-        self.record('user',text)
-        if self.thread: self.start_turn(text); return
+    def send_message(self,text,generation=None,context=None):
+        if self.busy or self.waiting_message: raise ValueError('Wait for the current ChatGPT request or stop it before sending another message')
+        self.waiting_message={'text':text,'generation':copy.deepcopy(generation),'documentId':generation['documentId'] if generation else self.ws.active,
+            'sourceRevision':generation['sourceRevision'] if generation else self.ws.document().revision if self.ws.active else None}
+        if context: self.waiting_message.update({k:context[k] for k in ('documentId','sourceRevision')})
+        self.request_started_at=time.monotonic()
+        self.generation_waiting=bool(generation)
+        return self.flush_message()
+    def flush_message(self):
+        if not self.waiting_message: return
+        if not self.initialized or not self.account_checked:
+            self.status.emit('Connecting to ChatGPT…'); return 'connecting'
+        if not self.account:
+            self.login(); return 'awaiting_signin'
+        request=self.waiting_message; self.waiting_message=None; self.generation_waiting=False
+        self.busy=True; self.stop_requested=False; self.status.emit('Starting…'); self.requested_generation=request['generation']
+        self.active_document=request['documentId']; self.source_revision=request['sourceRevision']; text=request['text']
+        self.record('user',text); self.message_sent.emit(text)
+        if self.thread: self.start_turn(text); return 'requested'
         params={'cwd':str(self.work),'approvalPolicy':'on-request','sandbox':'workspace-write','developerInstructions':(Path(__file__).parent/'prompts/editor.md').read_text(encoding='utf-8')}
         if self.model: params['model']=self.model
         saved=self.metadata.get('threadId')
         if saved: params['threadId']=saved; params['excludeTurns']=True
         self.rpc('thread/resume' if saved else 'thread/start',params,lambda r:self.thread_started(r,text))
+        return 'requested'
     def thread_started(self,result,text):
         self.thread=result['thread']['id']; self.metadata['threadId']=self.thread; atomic_json(self.metadata_path,self.metadata); self.start_turn(text)
     def start_turn(self,text):
@@ -131,8 +146,13 @@ class ChatSession(QObject):
         params={'threadId':self.thread,'input':[{'type':'text','text':text+'\n\nCurrent editor context:\n'+json.dumps(context,ensure_ascii=False)}]}
         if self.model: params['model']=self.model
         self.rpc('turn/start',params,self.turn_started)
-    def turn_started(self,result): self.turn=result['turn']['id']; self.turn_started_at=time.time(); self.status.emit('Working…')
+    def turn_started(self,result):
+        self.turn=result['turn']['id']; self.turn_started_at=time.time()
+        if self.stop_requested: self.interrupt()
+        else: self.status.emit('Working…')
     def interrupt(self):
+        self.waiting_message=None; self.generation_waiting=False; self.stop_requested=True
+        if not self.busy: self.status.emit('Stopped')
         if self.thread and self.turn: self.rpc('turn/interrupt',{'threadId':self.thread,'turnId':self.turn}); self.status.emit('Stopping…')
 
     def read_output(self):
@@ -141,6 +161,7 @@ class ChatSession(QObject):
             line,self.buffer=self.buffer.split(b'\n',1)
             try: message=json.loads(line)
             except ValueError: continue
+            self.last_activity=time.monotonic()
             if 'id' in message and 'method' not in message:
                 entry=self.pending.pop(message['id'],None)
                 if 'error' in message:
@@ -157,6 +178,7 @@ class ChatSession(QObject):
             if p.get('success'): self.discover_account()
             else: self.status.emit('ChatGPT tools could not be prepared: '+str(p.get('error') or 'Unknown setup error'))
         elif method=='account/login/completed':
+            self.login_pending=False
             if p.get('success'): self.rpc('account/read',{'refreshToken':False},self.account_response)
             else: self.status.emit(p.get('error') or 'Sign-in cancelled')
         elif method=='account/updated': self.rpc('account/read',{'refreshToken':False},self.account_response)
@@ -177,7 +199,7 @@ class ChatSession(QObject):
             if kind=='agentMessage':
                 text=item.get('text') or self.message_fragments.pop(item.get('id'), '')
                 self.message_fragments.pop(item.get('id'),None); self.stream.emit('')
-                self.display.emit('<b>ChatGPT</b><br>'+html.escape(text).replace('\n','<br>')); self.record('assistant',text)
+                self.display.emit(message_html('assistant',text)); self.record('assistant',text)
             elif kind=='imageGeneration': self.native_image(item)
         elif method=='turn/completed':
             self.questions_cleared.emit()

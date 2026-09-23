@@ -1,7 +1,7 @@
 """Native Windows art editor. Menus, pointer tools and MCP share Workspace commands."""
 from pathlib import Path
 import html, json, math, re
-from PySide6.QtCore import Qt, QRectF, QPointF, QSize, QTimer, QUrl, QEvent
+from PySide6.QtCore import Qt, QRectF, QPointF, QSize, QTimer, QUrl, QEvent, QByteArray
 from PySide6.QtGui import QAction, QActionGroup, QColor, QPainter, QPen, QBrush, QPixmap, QImage, QPainterPath, QIcon, QKeySequence, QDesktopServices, QMouseEvent
 from PySide6.QtWidgets import (QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QSplitter,QTabWidget,QTabBar,QDockWidget,QToolBar,QLabel,QPushButton,QToolButton,QComboBox,QDoubleSpinBox,QSpinBox,QSlider,QLineEdit,QPlainTextEdit,QTextBrowser,QListWidget,QListWidgetItem,QGraphicsView,QGraphicsScene,QGraphicsPixmapItem,QGraphicsPathItem,QFileDialog,QColorDialog,QInputDialog,QMessageBox,QDialog,QDialogButtonBox,QCheckBox,QScrollArea,QAbstractItemView)
 from PIL import Image
@@ -340,6 +340,21 @@ class Editor(QMainWindow):
         for dock in (self.generation_dock,self.chat_dock,self.production_dock): dock.hide()
         self.resizeDocks([self.layer_dock],[300],Qt.Orientation.Horizontal)
         ws.changed.connect(self.refresh); ws.message.connect(lambda text:self.statusBar().showMessage(text,15000)); self.refresh()
+        self.restore_window_layout()
+
+    def restore_window_layout(self):
+        path=self.ws.settings.root/'window.json'
+        if not path.exists(): return
+        try:
+            saved=json.loads(path.read_text(encoding='utf-8'))
+            self.restoreGeometry(QByteArray.fromBase64(saved['geometry'].encode()))
+            self.restoreState(QByteArray.fromBase64(saved['layout'].encode()),1)
+        except (ValueError,KeyError): return
+        if not self.chat_dock.isHidden() and (self.ws.settings.root/'chat/codex').exists(): QTimer.singleShot(0,self.reconnect_chat)
+
+    def save_window_layout(self):
+        from .settings import atomic_json
+        atomic_json(self.ws.settings.root/'window.json',{'geometry':bytes(self.saveGeometry().toBase64()).decode(),'layout':bytes(self.saveState(1).toBase64()).decode()})
 
     def action(self,menu,title,callback,shortcut=None):
         a=QAction(title,self)
@@ -381,7 +396,7 @@ class Editor(QMainWindow):
         self.color_button=QPushButton(swatches); self.color_button.setGeometry(0,0,32,32); self.color_button.setToolTip('Foreground color'); self.color_button.setAccessibleName('Foreground color'); self.color_button.clicked.connect(self.pick_color); toolbar.addWidget(swatches)
         swap=QAction('Swap foreground and background',self); swap.setShortcut('X'); swap.triggered.connect(self.swap_colors); self.addAction(swap)
         self.update_color()
-        options=QToolBar('Tool options'); options.setMovable(False); options.setMinimumHeight(42); self.addToolBar(options)
+        options=QToolBar('Tool options'); options.setObjectName('toolOptions'); options.setMovable(False); options.setMinimumHeight(42); self.addToolBar(options)
         self.tool_caption=QLabel('Move'); self.tool_caption.setMinimumWidth(105); self.tool_caption.setContentsMargins(8,0,10,0); options.addWidget(self.tool_caption); options.addSeparator()
         self.option_widgets=[]
         def option(widget,tools):
@@ -410,7 +425,7 @@ class Editor(QMainWindow):
             except RuntimeError: pass
 
     def dock(self,title,widget):
-        dock=QDockWidget(title,self); dock.setWidget(widget); dock.setMinimumWidth(300); dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable); self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,dock)
+        dock=QDockWidget(title,self); dock.setObjectName('dock_'+title.lower().replace(' ','_')); dock.setWidget(widget); dock.setMinimumWidth(300); dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable); self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,dock)
         # Secondary workspaces open beside the permanent inspector, preserving Layers.
         self.splitDockWidget(self.layer_dock,dock,Qt.Orientation.Horizontal)
         header=QWidget(); row=QHBoxLayout(header); row.setContentsMargins(10,0,4,0); row.addWidget(QLabel(title)); row.addStretch(); row.addWidget(icon_button('close','Close '+title,dock.hide)); dock.setTitleBarWidget(header)
@@ -468,6 +483,8 @@ class Editor(QMainWindow):
         self.logout_button=QPushButton('Sign out'); self.logout_button.clicked.connect(lambda:self.chat.logout() if self.chat else None); self.logout_button.hide(); top.addWidget(self.logout_button); layout.addLayout(top)
         self.chat_account=QLabel(); self.chat_account.setWordWrap(True); layout.addWidget(self.chat_account)
         self.chat_status=QLabel('Not connected'); self.chat_status.setWordWrap(True); layout.addWidget(self.chat_status)
+        self.chat_activity=QLabel(); self.chat_activity.setStyleSheet('color:#a9a9a9'); self.chat_activity.hide(); layout.addWidget(self.chat_activity)
+        self.chat_activity_timer=QTimer(self); self.chat_activity_timer.setInterval(1000); self.chat_activity_timer.timeout.connect(self.update_chat_activity); self.chat_activity_timer.start()
         self.chat_model=QComboBox(); self.chat_model.addItem('GPT-6-Sol','gpt-6-sol'); self.chat_model.currentIndexChanged.connect(self.choose_chat_model); layout.addWidget(self.chat_model)
         self.chat_questions=QWidget(); self.chat_questions_layout=QVBoxLayout(self.chat_questions); self.chat_questions.hide(); layout.addWidget(self.chat_questions)
         self.chat_log=QTextBrowser(); self.chat_log.setOpenExternalLinks(True); layout.addWidget(self.chat_log)
@@ -476,7 +493,7 @@ class Editor(QMainWindow):
         self.chat_stream=QPlainTextEdit(); self.chat_stream.setReadOnly(True); self.chat_stream.setMaximumHeight(160); self.chat_stream.hide(); layout.addWidget(self.chat_stream)
         self.chat_input=QPlainTextEdit(); self.chat_input.setPlaceholderText('Talk through your artwork…'); self.chat_input.setMaximumHeight(90); layout.addWidget(self.chat_input)
         row=QHBoxLayout(); send=QPushButton('Send'); send.clicked.connect(self.chat_send); row.addWidget(send); stop=QPushButton('Stop'); stop.clicked.connect(self.chat_stop); row.addWidget(stop); layout.addLayout(row)
-        self.chat_dock=self.dock('ChatGPT',panel); self.chat_dock.hide(); self.chat=None
+        self.chat_dock=self.dock('ChatGPT',panel); self.chat_dock.hide(); self.chat=None; self.setup_message=None; self.setup_login=False
 
     def build_production(self):
         from .production_ui import ProductionPanel
@@ -721,7 +738,7 @@ class Editor(QMainWindow):
         try: chat=self.ensure_chat()
         except RuntimeError:
             self.chat_login(); raise ValueError('Set up ChatGPT in the chat panel, then choose Generate again')
-        if chat.busy or chat.generation_waiting: raise ValueError('Wait for the current ChatGPT request or stop it before generating another image')
+        if chat.busy or chat.generation_waiting or chat.waiting_message: raise ValueError('Wait for the current ChatGPT request or stop it before generating another image')
         prepared=self.ws.dispatch('prepare_generation',{**args,'documentId':document.id})
         return chat.send_generation(prepared)
     def edit_generation_style(self):
@@ -755,8 +772,14 @@ class Editor(QMainWindow):
         key=QLineEdit(); key.setEchoMode(QLineEdit.EchoMode.Password); key.setPlaceholderText('Leave blank to keep the saved key'); form.addRow('API key',key)
         endpoint=QLineEdit(s.values['openai_url']); form.addRow('OpenAI-compatible URL',endpoint)
         studio=QLineEdit(s.values.get('studio_url','')); studio.setPlaceholderText('Optional local production service'); form.addRow('Project connector URL',studio)
-        working=QLineEdit(s.values.get('chat_working_directory','')); working.setPlaceholderText('Compositor manages this folder automatically'); form.addRow('ChatGPT working folder',working)
-        folder_note=QLabel('An optional folder for files created during conversations. Changes take effect when ChatGPT reconnects.'); folder_note.setWordWrap(True); form.addRow(folder_note)
+        working=QLineEdit(s.values.get('chat_working_directory','')); working.setPlaceholderText('Compositor manages this folder automatically')
+        folder_row=QHBoxLayout(); folder_row.addWidget(working); browse=QPushButton('Browse…'); folder_row.addWidget(browse); form.addRow('ChatGPT working folder',folder_row)
+        def browse_folder():
+            path=QFileDialog.getExistingDirectory(dialog,'ChatGPT working folder',working.text() or str(s.root/'chat/artifacts'))
+            if path: working.setText(path)
+        browse.clicked.connect(browse_folder)
+        folder_note=QLabel('An optional folder for files created during conversations. ChatGPT reconnects when you change it.'); folder_note.setWordWrap(True); form.addRow(folder_note)
+        reconnect=QPushButton('Reconnect ChatGPT'); reconnect.clicked.connect(self.reconnect_chat); form.addRow(reconnect)
         external=QPushButton('Copy external editor connection'); external.clicked.connect(self.copy_external_connection); form.addRow('External AI tools',external)
         note=QLabel('API keys are stored in Windows Credential Manager.\nChatGPT sign-in is separate and uses your subscription.'); note.setWordWrap(True); form.addRow(note)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel); buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject); form.addRow(buttons)
@@ -795,12 +818,36 @@ class Editor(QMainWindow):
             self.chat.models_changed.connect(self.populate_chat_models)
             self.chat.account_changed.connect(self.update_chat_account); self.chat.question.connect(self.show_chat_question)
             self.chat.questions_cleared.connect(self.clear_chat_questions)
+            self.chat.message_sent.connect(self.chat_message_sent)
             self.update_chat_account()
         return self.chat
+    def reconnect_chat(self):
+        try:
+            if self.chat and (self.chat.busy or self.chat.waiting_message): raise ValueError('Stop the current request before reconnecting ChatGPT')
+            if self.chat:
+                self.chat.shutdown(); self.chat.deleteLater(); self.chat=None
+            self.clear_chat_questions(); self.chat_status.setText('Connecting to ChatGPT…'); self.ensure_chat()
+        except RuntimeError: self.chat_status.setText('Choose Sign in with ChatGPT to set up the connection')
+        except Exception as error: self.chat_status.setText(str(error))
+
+    def chat_message_sent(self,text):
+        from .chat import message_html
+        self.chat_log.append(message_html('user',text))
+        if self.chat_input.toPlainText().strip()==text: self.chat_input.clear()
     def update_chat_account(self):
         chat=self.chat; checked=bool(chat and chat.account_checked); account=chat.account if checked else None
         self.login_button.setVisible(checked and not account); self.logout_button.setVisible(bool(account))
         self.chat_account.setText((account.get('email') or 'Signed in to ChatGPT') if account else ('Checking your account…' if not checked else ''))
+
+    def update_chat_activity(self):
+        import time
+        chat=self.chat
+        active=bool(chat and (chat.busy or chat.waiting_message))
+        self.chat_activity.setVisible(active)
+        if active:
+            now=time.monotonic(); started=chat.request_started_at or now
+            elapsed=max(0,int(now-started)); quiet=max(0,int(now-chat.last_activity))
+            self.chat_activity.setText(f'{elapsed//60}:{elapsed%60:02d} elapsed · Last activity {quiet}s ago')
 
     def copy_external_connection(self):
         from .chat import editor_mcp_config
@@ -856,13 +903,14 @@ class Editor(QMainWindow):
         for line in lines:
             try: row=json.loads(line)
             except ValueError: continue
-            label='You' if row['role']=='user' else 'ChatGPT'
-            self.chat_log.append('<b>'+label+'</b><br>'+html.escape(row['text']).replace('\n','<br>'))
+            from .chat import message_html
+            self.chat_log.append(message_html(row['role'],row['text']))
     def earlier_chat(self):
         self.chat_history_limit+=100; self.load_chat_history()
     def show_chat_stream(self,text):
         self.chat_stream.setVisible(bool(text)); self.chat_stream.setPlainText(text); self.chat_stream.verticalScrollBar().setValue(self.chat_stream.verticalScrollBar().maximum())
     def chat_login(self):
+        self.setup_login=True
         try:
             from .chat import runtime_command
             runtime_command(self.ws.settings.values.get('codex_path'))
@@ -879,16 +927,29 @@ class Editor(QMainWindow):
             def run(worker):
                 try: worker.completed.emit(install_runtime(self.ws.settings.root,worker.progress.emit))
                 except Exception as e: worker.failed.emit(str(e))
-        self.runtime_install=Installer(self); self.runtime_install.progress.connect(self.chat_status.setText); self.runtime_install.failed.connect(self.chat_status.setText)
+        self.runtime_install=Installer(self); self.runtime_install.progress.connect(self.chat_status.setText)
+        def failed(error):
+            self.setup_message=None; self.setup_login=False; self.chat_status.setText(error)
+        self.runtime_install.failed.connect(failed)
         def installed(path):
-            self.ws.settings.values['codex_path']=path; self.ws.settings.save(); self.chat_login()
+            self.ws.settings.values['codex_path']=path; self.ws.settings.save()
+            request=self.setup_message; self.setup_message=None
+            if request:
+                try: self.ensure_chat().send_message(request['text'],context=request)
+                except Exception as error: self.chat_status.setText(str(error))
+            elif self.setup_login: self.chat_login()
         self.runtime_install.completed.connect(installed); self.runtime_install.start()
     def chat_send(self):
         text=self.chat_input.toPlainText().strip()
         if not text: return
-        try: self.ensure_chat().send_message(text); self.chat_log.append('<b>You</b><br>'+html.escape(text).replace('\n','<br>')); self.chat_input.clear()
+        if self.setup_message:
+            self.chat_status.setText('Your message will be sent after ChatGPT setup'); return
+        try: self.ensure_chat().send_message(text)
+        except RuntimeError:
+            self.setup_message={'text':text,'documentId':self.ws.active,'sourceRevision':self.ws.document().revision if self.ws.active else None}; self.setup_login=False; self.install_chat_runtime()
         except Exception as e: self.chat_status.setText(str(e))
     def chat_stop(self):
+        self.setup_message=None; self.setup_login=False
         if self.chat: self.chat.interrupt()
     def closeEvent(self,event):
         if hasattr(self,'runtime_install') and self.runtime_install.isRunning():
@@ -896,6 +957,6 @@ class Editor(QMainWindow):
         active=[j for j in self.ws.generation.jobs.values() if j['status'] in ('queued','running')]
         if active:
             QMessageBox.information(self,'Images are still generating','Generation is still running. Minimize Compositor to keep these requests alive, or wait for them to finish.'); event.ignore(); return
-        self.production.save_drafts(); self.ws.save_recovery()
+        self.production.save_drafts(); self.ws.save_recovery(); self.save_window_layout()
         if self.chat: self.chat.shutdown()
         event.accept()

@@ -34,7 +34,7 @@ class Workspace(QObject):
         chat=getattr(self.window,'chat',None)
         return {'service':'compositor','activeDocument':self.active,'documents':[d.info() for d in self.documents.values()],
                 'view':self.view,'jobs':list(self.generation.jobs.values()),'settings':self.settings.public(),'production':self.projects.info(),
-                'chat':{'connected':bool(chat and chat.initialized),'signedIn':bool(chat and chat.account),'busy':bool(chat and (chat.busy or chat.generation_waiting)),'model':chat.model if chat else None}}
+                'chat':{'connected':bool(chat and chat.initialized),'signedIn':bool(chat and chat.account),'busy':bool(chat and (chat.busy or chat.generation_waiting or chat.waiting_message)),'model':chat.model if chat else None}}
 
     def dispatch(self,action,args=None):
         a=args or {}
@@ -46,11 +46,9 @@ class Workspace(QObject):
                 text=str(a.get('text','')).strip()
                 if not text: raise ValueError('Write a message first')
                 chat.send_message(text)
-                import html
-                self.window.chat_log.append('<b>You</b><br>'+html.escape(text).replace('\n','<br>'))
             elif operation=='stop': chat.interrupt()
             elif operation!='status': raise ValueError('Unknown chat operation')
-            return {'connected':chat.initialized,'signedIn':bool(chat.account),'accountChecked':chat.account_checked,'busy':chat.busy or chat.generation_waiting,'model':chat.model,'workingDirectory':str(chat.work),'status':self.window.chat_status.text(),'accountLabel':self.window.chat_account.text(),'signInVisible':not self.window.login_button.isHidden(),'signOutVisible':not self.window.logout_button.isHidden()}
+            return {'connected':chat.initialized,'signedIn':bool(chat.account),'accountChecked':chat.account_checked,'busy':bool(chat.busy or chat.generation_waiting or chat.waiting_message),'model':chat.model,'workingDirectory':str(chat.work),'status':self.window.chat_status.text(),'accountLabel':self.window.chat_account.text(),'signInVisible':not self.window.login_button.isHidden(),'signOutVisible':not self.window.logout_button.isHidden()}
         if action=='fonts':
             from .fonts import catalog
             return {'families':catalog()}
@@ -96,10 +94,19 @@ class Workspace(QObject):
         if action=='settings':
             allowed={'provider','model','quality','imageSize','aspectRatio','studio_url','openai_url','gemini_url','codex_path','generationRoute','chat_model','chat_working_directory'}
             if 'generationRoute' in a and a['generationRoute'] not in ('api','chatgpt'): raise ValueError('Choose API provider or ChatGPT subscription')
+            reconnect='chat_working_directory' in a and a['chat_working_directory']!=self.settings.values.get('chat_working_directory','')
+            chat=getattr(self.window,'chat',None)
+            if reconnect and chat and (chat.busy or chat.waiting_message): raise ValueError('Stop the current ChatGPT request before changing its working folder')
             for k,v in a.items():
                 if k not in allowed: raise ValueError(f'Unsupported setting {k}')
-                self.settings.values[k]=v
-            self.settings.save(); self.changed.emit(); return self.settings.public()
+            if reconnect and a['chat_working_directory']:
+                folder=Path(a['chat_working_directory']).expanduser().resolve(); folder.mkdir(parents=True,exist_ok=True)
+                if not folder.is_dir(): raise ValueError('Choose a folder for ChatGPT files')
+                a={**a,'chat_working_directory':str(folder)}
+            self.settings.values.update(a)
+            self.settings.save(); self.changed.emit()
+            if reconnect and chat: self.window.reconnect_chat()
+            return self.settings.public()
         if action=='jobs': return list(self.generation.jobs.values())
         if action=='job': return self.generation.jobs[a['jobId']]
         if action=='connector_projects': return self.connector().projects()

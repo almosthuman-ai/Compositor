@@ -43,6 +43,8 @@ ChatGPT can inspect the canvas and use the same editing operations as the applic
 
 The editor connects its tools automatically. GPT-6-Sol is the initial chat model; choose another from the model list. When signed in, the panel shows your account email when available and **Sign out**. Questions stay in the panel, so background work can continue while you type in another application. In Settings, you can choose a working folder for conversation files or keep the folder Compositor manages.
 
+You can write your first message before setting up ChatGPT. Compositor installs the required support and keeps the message pending through sign-in. **Stop** cancels a pending message. A working-folder change reconnects an idle conversation automatically; **Reconnect ChatGPT** is also available in Settings. Replies display formatted text, and active requests show elapsed time and when the runtime last reported activity.
+
 Runtime installation, OAuth sign-in and a signed-in GPT-6-Sol conversation have been verified on Windows 10. The live conversation inspected the project and cast, edited and restored layers with undo, and generated a subscription image using the project's character reference and style. The image remained a review candidate, preserving the existing page.
 
 ## Image providers
@@ -89,6 +91,8 @@ Owen & Vic Studio can be connected through its local service URL in Settings. Ex
 ## Recovery and local data
 
 Settings, recovery snapshots, generated candidates and chat history live in `%LOCALAPPDATA%/Compositor`. `COMPOSITOR_DATA` selects an alternate store for testing or a separate installation. Unsaved documents reopen from recovery; an explicit Save creates your chosen project file. Failed or interrupted requests remain visible in Generate and are never retried automatically.
+
+The window's size, position and open panels return when you reopen the app. Qt adjusts the restored window to the available screen if your display arrangement changes.
 
 ## Development
 

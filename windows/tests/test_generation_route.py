@@ -14,8 +14,8 @@ def fake_chat(ws):
     chat=SimpleNamespace(ws=ws,busy=False,generation_waiting=False,initialized=True,account_checked=True,account={'planType':'plus'},
         after_ready=[],thread='conversation',model='account-model',status=signal,display=signal,native_sources={},turn_started_at=time.time(),
         record=lambda *a:None,rpc=lambda method,params,callback:calls.append((method,params)),turn_started=lambda r:None,
-        requested_generation=None,login=lambda:messages.append('login'))
-    for name in ('send_generation','send_message','start_turn'): setattr(chat,name,MethodType(getattr(ChatSession,name),chat))
+        requested_generation=None,waiting_message=None,message_sent=signal,login=lambda:messages.append('login'))
+    for name in ('send_generation','send_message','flush_message','start_turn'): setattr(chat,name,MethodType(getattr(ChatSession,name),chat))
     return chat,messages,calls
 
 
@@ -47,9 +47,10 @@ def test_connection_wait_preserves_request_and_does_not_fall_back_when_unsigned(
     chat,messages,calls=fake_chat(ws); chat.initialized=False; chat.account_checked=False; chat.account=None
     result=chat.send_generation(prepared); assert result['status']=='connecting' and chat.generation_waiting
     with pytest.raises(ValueError,match='current ChatGPT'): chat.send_generation(prepared)
-    chat.initialized=True; chat.account_checked=True; chat.after_ready.pop()()
-    assert not chat.generation_waiting and not chat.busy and not calls
-    assert 'login' in messages and 'Finish signing in' in messages[-1]
+    chat.initialized=True; chat.account_checked=True; assert chat.flush_message()=='awaiting_signin'
+    assert chat.generation_waiting and not chat.busy and not calls and 'login' in messages
+    chat.account={'planType':'plus'}; assert chat.flush_message()=='requested'
+    assert chat.busy and not chat.generation_waiting and calls
     ws.generation.pool.shutdown()
 
 
