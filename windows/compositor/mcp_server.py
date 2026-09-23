@@ -7,6 +7,17 @@ from .settings import Settings
 
 server=MCPServer('Compositor')
 
+@server.tool()
+def compositor_glitch(operation:Literal['catalog','render','export','vary','normalize','palette','jobs','job','apply','cancel']='catalog',args:dict|None=None) -> dict|list:
+    """Use Tai Mei's Glitch Temple in the shared editor, without desktop focus. catalog returns all 18 effects, parameter ranges, defaults and complete templates. Start with defaults, choose effects from templates, retain their where targets and optional character/sort/wizprocess settings. render args: documentId, source (layer/composite/generated/treatment), layerId, recipe, name, preserveAlpha, useSelection, autoApply. Rendering is asynchronous: inspect job with jobId, then inspect its actual image and apply. Layer treatments retain the original source in the document for later source=treatment revisions. Structure/color seeds are retained; source document changes reject automatic placement. export renders an applied treatment as a GIF or MP4 within the complete composition, preserving other layers: args documentId, layerId, path (new filename), frames (2-240), fps (1-30), maxDimension (default 960). Poll job for framesRendered/status/exportPath; cancel stops the selected job. MP4 pads odd dimensions to even with black; GIF retains transparency. Rendering uses the bundled Canvas engine, not Processing."""
+    return call('glitch',{'operation':operation,**(args or {})})
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True,destructiveHint=False))
+def compositor_inspect_glitch(jobId:str,maxDimension:int=1600) -> list:
+    """See the actual rendered Glitch Temple candidate before applying it."""
+    result=call('glitch',{'operation':'capture','jobId':jobId,'maxDimension':maxDimension})
+    return [Image(data=base64.b64decode(result['data']),format='png')]
+
 def call(action,args=None):
     settings=Settings(); req=urllib.request.Request(f'http://127.0.0.1:{settings.values["port"]}/action',data=json.dumps({'action':action,'args':args or {}}).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+settings.token})
     try:

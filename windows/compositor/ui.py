@@ -396,6 +396,7 @@ class Editor(QMainWindow):
         adjust=self.menuBar().addMenu('&Adjustments')
         for label,kind in [('Exposure','exposure'),('Brightness','brightness'),('Contrast','contrast'),('Hue / Saturation','hue_saturation'),('Levels','levels'),('Curves','curves'),('Gradient map','gradient_map'),('Invert','invert'),('Grayscale','grayscale'),('Auto levels','auto_levels'),('Grain','grain')]: self.action(adjust,label+'…',lambda kind=kind:self.adjust_dialog(kind,True))
         filters=self.menuBar().addMenu('F&ilters')
+        self.action(filters,'Glitch Temple…',self.glitch_dialog); filters.addSeparator()
         for label,kind in [('Gaussian blur','gaussian_blur'),('Motion blur','motion_blur'),('Sharpen','sharpen'),('Noise','noise')]: self.action(filters,label+'…',lambda kind=kind:self.adjust_dialog(kind,False))
         view=self.menuBar().addMenu('&View'); self.action(view,'Fit canvas',self.canvas.fit,'Ctrl+0'); self.action(view,'Actual pixels',lambda:self.canvas.resetTransform(),'Ctrl+1'); self.action(view,'Add guide…',self.guide_dialog)
         projects=self.menuBar().addMenu('&Projects'); self.action(projects,'Project library',lambda:self.show_panel(self.production_dock)); self.action(projects,'New artwork, comic or book…',lambda:self.production.create()); self.action(projects,'Open project…',lambda:self.production.open()); projects.addSeparator(); self.action(projects,'Open connected studio',self.open_studio); self.action(projects,'Bring connected project image into editor…',self.pull_project); self.action(projects,'Return artwork to connected project',self.push_project)
@@ -713,6 +714,9 @@ class Editor(QMainWindow):
     def pixel_art_dialog(self):
         from .pixel_ui import PixelArtDialog
         PixelArtDialog(self).exec()
+    def glitch_dialog(self):
+        from .glitch_ui import GlitchDialog
+        dialog=GlitchDialog(self); dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose); dialog.show()
     def new_pixel_document(self):
         args=self.form_dialog('New pixel canvas',{'title':'Pixel artwork','width':128,'height':128})
         if args:
@@ -1013,5 +1017,6 @@ class Editor(QMainWindow):
         if active:
             QMessageBox.information(self,'Images are still generating','Generation is still running. Minimize Compositor to keep these requests alive, or wait for them to finish.'); event.ignore(); return
         self.production.save_drafts(); self.ws.save_recovery(); self.save_window_layout()
+        if hasattr(self.ws,'glitch'):self.ws.glitch.shutdown()
         if self.chat: self.chat.shutdown()
         event.accept()

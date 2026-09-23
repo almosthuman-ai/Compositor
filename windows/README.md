@@ -20,6 +20,20 @@ The **Pixel pencil (P)** draws square, opaque pixels. Its **Erase pixels** optio
 
 Regional generation uses surrounding context on a working image with dimensions divisible by 64 and at least 1024 pixels on its long side. The selection determines where the result is applied. Generate offers smooth or nearest-neighbor sampling; the app retains the provider's original bytes and normalizes crop-edit candidates to the working dimensions. Applied selections remain editable layer masks.
 
+## Glitch Temple
+
+Choose **Filters → Glitch Temple…** to build a treatment with Tai Mei's sorting, signal, spatial, dither and character effects. Add effects, reorder them, and use **Where** to restrict each effect to brightness, edges, color or a geometric pattern. ASCII, Zhuyin, PETSCII Study, Ultimate Sort and Wizprocess expose their additional controls in the Effect tab.
+
+Render a preview, compare it with **Original**, then apply it. A layer treatment keeps the original underneath and retains its source pixels and recipe inside the new layer. Reopen Glitch Temple with that layer selected to revise from the retained source. Save `.compwin` to carry the treatment with the document. Keep subsequent hand-painted details on separate layers if you want them to survive another render of the treatment.
+
+The Color tab supports four chosen colors, colors extracted from the source, and generated color relationships. **Build palette from settings** updates the swatches. Save and load recipes to reuse a treatment; **New structure** and **New colors** produce new seeds while preserving the current source.
+
+Apply the treatment before exporting a GIF or MP4 loop. Other document layers, including captions and painted finishing, remain in the composition. Set frame count and speed in Recipe. The dialog exports within 960 pixels; MCP can choose another maximum dimension. Pixel documents use nearest-neighbor export sampling. GIF preserves transparency; MP4 uses H.264 and pads odd dimensions to even with black. Stop cancels the current render or export.
+
+The installed app includes the local renderer and animation encoder. Glitch Temple does not require Processing, Java, Node, or a separate installation. This integration uses its Canvas algorithms; the original Processing renderer and byte-native PETSCII editing are not included. See [source provenance and rebuilding](glitch-engine/README.md).
+
+`compositor_glitch` exposes the same effect catalog, recipes, renders, application, variation and loop exports to the embedded collaborator and external MCP clients. `compositor_inspect_glitch` returns the actual candidate image. These operations do not activate the desktop window.
+
 ## Run from source
 
 Install Python 3.11 for Windows, then run:

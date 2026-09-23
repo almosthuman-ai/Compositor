@@ -17,6 +17,7 @@ def main():
     from compositor.ui import Editor
     import pillow_heif
     pillow_heif.register_heif_opener()
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app=QApplication(sys.argv); app.setApplicationName('Compositor'); app.setOrganizationName('Compositor')
     settings=Settings(); lock=QLockFile(str(settings.root/'editor.lock')); lock.setStaleLockTime(0)
     if not lock.tryLock(0):

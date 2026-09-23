@@ -39,6 +39,11 @@ class Workspace(QObject):
 
     def dispatch(self,action,args=None):
         a=args or {}
+        if action=='glitch':
+            if not hasattr(self,'glitch'):
+                from .glitch import GlitchTemple
+                self.glitch=GlitchTemple(self)
+            return self.glitch.dispatch(a)
         if action=='state': return self.state()
         if action=='chat':
             if not self.window: raise ValueError('Open Compositor to use ChatGPT')

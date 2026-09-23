@@ -14,7 +14,12 @@ The Windows application is built on the following projects. Their licenses remai
 | keyring | Windows credential storage | [keyring](https://github.com/jaraco/keyring), MIT |
 | PyInstaller | Standalone packaging | [PyInstaller](https://github.com/pyinstaller/pyinstaller), GPL with bootloader exception |
 | Codex | Optional ChatGPT integration runtime | [OpenAI Codex](https://github.com/openai/codex), Apache-2.0 |
+| Glitch Temple | Glitch treatments, sorting, character fields and animation algorithms | [Tai Mei / Glitch Temple](https://github.com/taimei886/glitch-temple), MIT; original sources and attribution retained in `windows/glitch-engine/vendor` |
+| imageio-ffmpeg | Locating the bundled animation encoder | [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg), BSD-2-Clause |
+| FFmpeg | Separate executable for GIF and MP4 export | [FFmpeg 7.1](https://github.com/FFmpeg/FFmpeg/tree/n7.1), GPL-3.0-or-later for the bundled Gyan essentials build; see `third-party-licenses/ffmpeg` |
 
 Qt libraries are shipped as separate dynamic libraries in `_internal`. Their original binaries and notices are preserved. Source for matching versions is available from the linked upstream projects. The package's `third-party-licenses` directory contains the installed dependency license texts collected during the build. Codex, when installed through the application, remains in a separate per-user runtime directory.
 
 This list identifies the principal components. The collected license texts include their dependencies and govern the corresponding components.
+
+Glitch Temple's Canvas engine runs locally through Qt WebEngine. Compositor retains its recipe format and original effect algorithms; its Qt controls, document ownership and export pipeline are adaptations. The Processing engine is not included. Qt WebEngine also includes Chromium components under their respective notices, available through its `qtwebengine://credits` page and the [matching Qt sources](https://download.qt.io/official_releases/qt/).

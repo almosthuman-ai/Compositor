@@ -7,7 +7,7 @@ if (-not (Test-Path -LiteralPath $python)) { throw 'Run windows/setup.ps1 first.
 Push-Location $repo
 try {
     function Get-CompositorSourceSignature {
-        $sourceFiles = @(Get-ChildItem -LiteralPath 'windows/compositor' -Recurse -File | Where-Object { $_.Extension -in @('.py','.md','.json') })
+        $sourceFiles = @(Get-ChildItem -LiteralPath 'windows/compositor' -Recurse -File | Where-Object { $_.Extension -in @('.py','.md','.json','.js','.html','.txt') })
         $sourceFiles += Get-Item -LiteralPath 'windows/run.py','windows/Compositor.spec','windows/requirements.txt'
         return (($sourceFiles | Sort-Object FullName | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }) -join '|')
     }

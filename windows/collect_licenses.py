@@ -14,4 +14,10 @@ for distribution in distributions():
                 destination=target/(name+'-'+version)/Path(*entry.parts[1:]); destination.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(source,destination); files.append(str(destination.relative_to(target)))
     records.append({'package':name,'version':version,'license':distribution.metadata.get('License-Expression') or distribution.metadata.get('License'),'files':files})
 (target/'index.json').write_text(json.dumps(records,indent=2),encoding='utf-8')
+for name in ('ffmpeg',):
+    source=Path(__file__).parent/'licenses'/name
+    if source.exists():shutil.copytree(source,target/name,dirs_exist_ok=True)
+glitch=Path(__file__).parent/'compositor/glitch_assets'
+(target/'glitch-temple').mkdir(exist_ok=True)
+for name in ('LICENSE.txt','origin.json'):shutil.copyfile(glitch/name,target/'glitch-temple'/name)
 print(f'Collected notices for {len(records)} installed packages')

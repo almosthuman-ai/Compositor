@@ -1,0 +1,17 @@
+<!doctype html><meta charset="utf-8"><title>Glitch Temple renderer</title>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script><script src="engine.js"></script>
+<script>
+new QWebChannel(qt.webChannelTransport, channel => {
+  const bridge=channel.objects.bridge;
+  window.templeRequest=async request=>{
+    try {
+      const result=request.operation==='render' ? await TempleEngine.render(request) :
+        request.operation==='vary' ? TempleEngine.vary(request.recipe,request.kind) :
+        request.operation==='normalize' ? TempleEngine.normalize(request.recipe) :
+        request.operation==='palette' ? TempleEngine.palette(request.recipe) : TempleEngine.catalog();
+      bridge.completed(JSON.stringify({id:request.id,result}));
+    } catch(error) {bridge.completed(JSON.stringify({id:request.id,error:String(error)}));}
+  };
+  bridge.ready(JSON.stringify(TempleEngine.catalog()));
+});
+</script>

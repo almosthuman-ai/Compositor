@@ -18,6 +18,7 @@ class Layer:
     id: str = field(default_factory=uid)
     kind: str = 'raster'
     image: object = None
+    effect_source: object = None
     mask: object = None
     mask_enabled: bool = True
     visible: bool = True
@@ -40,9 +41,9 @@ class Layer:
         return replace(self,params=copy.deepcopy(self.params),effects=copy.deepcopy(self.effects),provenance=copy.deepcopy(self.provenance))
 
     def info(self):
-        result={k:v for k,v in vars(self).items() if k not in ('image','mask')}
+        result={k:v for k,v in vars(self).items() if k not in ('image','mask','effect_source')}
         im=pixels.content(self) if self.kind not in ('group','adjustment') else None
-        return {**result,'pixelWidth':im.width if im else 0,'pixelHeight':im.height if im else 0,'hasMask':self.mask is not None}
+        return {**result,'pixelWidth':im.width if im else 0,'pixelHeight':im.height if im else 0,'hasMask':self.mask is not None,**({'hasEffectSource':True} if self.effect_source is not None else {})}
 
 class Document:
     def __init__(self,width=1536,height=1024,title='Untitled'):
@@ -392,8 +393,8 @@ class Document:
                 def put(name,im):
                     data=io.BytesIO(); im.save(data,format='PNG'); archive.writestr(name,data.getvalue())
                 for l in self.layers:
-                    record={k:v for k,v in vars(l).items() if k not in ('image','mask')}
-                    for key in ('image','mask'):
+                    record={k:v for k,v in vars(l).items() if k not in ('image','mask','effect_source')}
+                    for key in ('image','mask','effect_source'):
                         im=getattr(l,key)
                         if im is not None: record[key]=f'layers/{l.id}-{key}.png'; put(record[key],im)
                     manifest['layers'].append(record)
@@ -449,7 +450,7 @@ class Document:
                 # or selected layer. Neither changes the artwork being edited.
                 legacy_digest=hashlib.sha256(json.dumps({k:v for k,v in m.items() if k not in ('active','stateId')},sort_keys=True,separators=(',',':')).encode())
             for r in m['layers']:
-                for key in ('image','mask'):
+                for key in ('image','mask','effect_source'):
                     if r.get(key):
                         r[key]=Image.open(io.BytesIO(archive.read(r[key]))).convert('L' if key=='mask' else 'RGBA')
                         if legacy_digest:
