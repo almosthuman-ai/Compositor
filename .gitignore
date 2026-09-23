@@ -22,3 +22,10 @@ xcuserdata/
 # Claude Code settings personal to this machine
 .claude/settings.local.json
 BUILD_PLAN.md
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+windows/evidence/
+windows/local/
+/Compositor.spec

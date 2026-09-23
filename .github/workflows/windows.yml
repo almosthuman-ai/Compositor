@@ -1,0 +1,34 @@
+name: Windows
+on:
+  push:
+    branches: [windows-studio]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  verify-and-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: windows/requirements.txt
+      - name: Install
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python.exe -m pip install -r windows/requirements.txt
+      - name: Verify
+        shell: pwsh
+        run: .venv/Scripts/python.exe -m pytest windows/tests -q
+      - name: Build
+        shell: pwsh
+        run: windows/build.ps1
+      - name: Verify packaged GUI and MCP
+        shell: pwsh
+        run: .venv/Scripts/python.exe windows/verify_distribution.py dist/Compositor
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Compositor-Windows-x64
+          path: dist/Compositor

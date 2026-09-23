@@ -1,5 +1,7 @@
 # Compositor
 
+**Windows edition:** this fork is adding a native Windows 10 editor, general generative editing, ChatGPT collaboration and MCP tools. It is under active development; [Windows setup and current status](windows/README.md) describe what is available and what still needs verification. The original Mac implementation and instructions follow below.
+
 Adobe Photoshop costs too much and tools like GIMP don’t feel familiar enough for me to stay in flow. That’s why I built Compositor.
 
 The goal was to create a full-featured image editor that is completely free and open source. I use Photoshop for compositing and post-processing, so Compositor is built around that workflow - with the tools needed to create a pixel-perfect final image.
