@@ -36,6 +36,9 @@ class Workspace(QObject):
     def dispatch(self,action,args=None):
         a=args or {}
         if action=='state': return self.state()
+        if action=='fonts':
+            from .fonts import catalog
+            return {'families':catalog()}
         if action=='production':
             operation=a['operation']; arguments=a.get('args',{})
             if operation in ('present','close_presentation'):

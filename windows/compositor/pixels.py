@@ -54,14 +54,18 @@ def blend(back, front, mode='normal', opacity=1):
     rgb = ((1-a)*ab*cb+(1-ab)*a*cs+ab*a*c)/np.maximum(out_a, 1e-7)
     return Image.fromarray(np.clip(np.concatenate([rgb, out_a], axis=2)*255+.5, 0, 255).astype('uint8'))
 
-def font(size, name='C:/Windows/Fonts/arial.ttf'):
-    try: return ImageFont.truetype(name, max(1, int(size)))
+def font(size, name='C:/Windows/Fonts/arial.ttf', index=0, family=None, style='Regular'):
+    if family:
+        from .fonts import resolve
+        face=resolve(family,style)
+        if face: name,index=face['path'],face['index']
+    try: return ImageFont.truetype(name, max(1, int(size)),index=int(index))
     except OSError: return ImageFont.truetype('C:/Windows/Fonts/arial.ttf', max(1, int(size)))
 
 def content(layer):
     if layer.kind == 'text':
         p = layer.params
-        f = font(p.get('size', 48), p.get('font', 'C:/Windows/Fonts/arial.ttf'))
+        f = font(p.get('size', 48), p.get('font', 'C:/Windows/Fonts/arial.ttf'),p.get('fontIndex',0),p.get('fontFamily'),p.get('fontStyle','Regular'))
         text = p.get('text', '') or ' '
         spacing = p.get('spacing', 8)
         box = ImageDraw.Draw(Image.new('RGBA',(1,1))).multiline_textbbox((0,0), text, font=f, spacing=spacing)

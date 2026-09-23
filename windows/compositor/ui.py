@@ -190,7 +190,7 @@ class Canvas(QGraphicsView):
             if 0<=x<d.width and 0<=y<d.height: self.window.color=QColor(*d.render().getpixel((x,y))).name(); self.window.update_color()
             self.start=None
         elif tool=='wand': self.window.edit('selection',{'kind':'wand','x':int(point.x()),'y':int(point.y()),'tolerance':self.window.tolerance.value(),'mode':self.selection_mode(event)}); self.start=None
-        elif tool=='text': self.window.add_text(point); self.start=None
+        elif tool=='text': self.window.type_at(point); self.start=None
         elif tool=='clone' and event.modifiers() & Qt.KeyboardModifier.AltModifier: self.clone_source=point; self.start=None; self.window.statusBar().showMessage('Clone source set. Paint to copy from it.')
         elif tool=='move':
             d=self.ws.document()
@@ -313,6 +313,9 @@ class Canvas(QGraphicsView):
 
     def dragEnterEvent(self,event):
         if event.mimeData().hasUrls(): event.acceptProposedAction()
+    def mouseDoubleClickEvent(self,event):
+        if self.ws.active and self.ws.document().active and self.ws.document().layer().kind=='text': self.window.edit_layer_content(); event.accept(); return
+        super().mouseDoubleClickEvent(event)
     def dragMoveEvent(self,event): event.acceptProposedAction()
     def dropEvent(self,event):
         for url in event.mimeData().urls():
@@ -431,7 +434,7 @@ class Editor(QMainWindow):
         row.addWidget(QLabel('Opacity')); self.opacity=QSpinBox(); self.opacity.setRange(0,100); self.opacity.setSuffix('%'); self.opacity.setFixedWidth(67); self.opacity.setAccessibleName('Layer opacity'); self.opacity.valueChanged.connect(lambda v:self.property_changed('opacity',v/100)); row.addWidget(self.opacity); layout.addLayout(row)
         row=QHBoxLayout(); row.setContentsMargins(8,0,8,0); self.locked=QCheckBox('Lock'); self.locked.toggled.connect(lambda v:self.property_changed('locked',v)); row.addWidget(self.locked)
         self.clipping=QCheckBox('Clip to layer below'); self.clipping.toggled.connect(lambda v:self.property_changed('clipping',v)); row.addWidget(self.clipping); row.addStretch(); layout.addLayout(row)
-        self.layers=QListWidget(); self.layers.setIconSize(QSize(40,30)); self.layers.setItemDelegate(LayerDelegate(self.layers)); self.layers.itemClicked.connect(self.select_layer); self.layers.itemChanged.connect(self.layer_changed); self.layers.itemDoubleClicked.connect(lambda _:self.rename_layer()); layout.addWidget(self.layers,1)
+        self.layers=QListWidget(); self.layers.setIconSize(QSize(40,30)); self.layers.setItemDelegate(LayerDelegate(self.layers)); self.layers.itemClicked.connect(self.select_layer); self.layers.itemChanged.connect(self.layer_changed); self.layers.itemDoubleClicked.connect(lambda _:self.edit_layer_content()); layout.addWidget(self.layers,1)
         buttons=QHBoxLayout(); buttons.setContentsMargins(4,2,4,2); buttons.setSpacing(1); buttons.addStretch()
         for name,label,fn in [('effects','Layer effects',self.effects_dialog),('mask','Add layer mask',lambda:self.edit('mask',{'mode':'white'})),('group','New group',lambda:self.edit('add_layer',{'kind':'group','name':'Group'})),('plus','New layer',lambda:self.edit('add_layer')),('copy','Duplicate layer',lambda:self.edit('duplicate_layer')),('up','Raise layer',lambda:self.reorder(1)),('down','Lower layer',lambda:self.reorder(-1)),('delete','Delete layer',lambda:self.edit('delete_layer'))]: buttons.addWidget(icon_button(name,label,fn))
         layout.addLayout(buttons); section('Layers',panel).setMinimumHeight(200)
@@ -574,6 +577,11 @@ class Editor(QMainWindow):
     def edit_layer_content(self):
         if not self.ws.active or not self.ws.document().active: return
         layer=self.ws.document().layer()
+        if layer.kind=='text':
+            from .text_ui import TextDialog
+            document=self.ws.document(); commit=self.text_commit(document,'update_layer',{'layerId':layer.id})
+            dialog=TextDialog(self,layer.params,commit=commit); dialog.setWindowTitle('Edit text — '+document.title); dialog.exec()
+            return
         if layer.kind not in ('text','shape','gradient','adjustment'): self.rename_layer(); return
         params={k:json.dumps(v) if isinstance(v,(list,dict)) else v for k,v in layer.params.items()}
         result=self.form_dialog('Edit '+layer.kind,params)
@@ -625,8 +633,31 @@ class Editor(QMainWindow):
         box=self.ws.document().selection.getbbox() if self.ws.document().selection is not None else None
         if box: self.edit('crop',{'x':box[0],'y':box[1],'width':box[2]-box[0],'height':box[3]-box[1]})
     def add_text(self,point):
-        a=self.form_dialog('Text',{'text':'Your text','size':48,'font':'C:/Windows/Fonts/arial.ttf','color':self.color,'spacing':8})
-        if a: self.edit('add_layer',{'kind':'text','name':a['text'][:36],'x':point.x(),'y':point.y(),'params':a})
+        from .text_ui import TextDialog
+        document=self.ws.document(); commit=self.text_commit(document,'add_layer',{'kind':'text','x':point.x(),'y':point.y()})
+        dialog=TextDialog(self,{'text':'Your text','size':48,'fontFamily':'Arial','color':self.color,'spacing':8},creating=True,commit=commit); dialog.setWindowTitle('Add text — '+document.title); dialog.exec()
+    def text_commit(self,document,operation,args):
+        revision=[document.revision]
+        def commit(params):
+            values={**args,'params':params}
+            if operation=='add_layer': values['name']=params['text'][:36]
+            try: self.ws.dispatch('edit',{'documentId':document.id,'operation':operation,'args':values,'expectedRevision':revision[0]})
+            except ValueError:
+                current=self.ws.documents.get(document.id)
+                if current is not None and current.revision!=revision[0]:
+                    revision[0]=current.revision
+                    raise ValueError('The document changed while you were editing. Your draft is kept. Apply again to use your text, or cancel to keep the current layer.') from None
+                raise
+            self.ws.dispatch('activate',{'documentId':document.id})
+        return commit
+    def type_at(self,point):
+        d=self.ws.document()
+        for layer in reversed(d.layers):
+            if layer.kind!='text' or not layer.visible: continue
+            im=pixels.content(layer)
+            if layer.x<=point.x()<layer.x+im.width*abs(layer.sx) and layer.y<=point.y()<layer.y+im.height*abs(layer.sy):
+                d.active=layer.id; self.ws.changed.emit(); self.edit_layer_content(); return
+        self.add_text(point)
     def adjust_dialog(self,kind,layer):
         fields={'exposure':{'value':0},'brightness':{'value':0},'contrast':{'value':1},'hue_saturation':{'hue':0,'saturation':1,'value':1},'levels':{'black':0,'white':1,'gamma':1},'curves':{'points':'[[0,0],[0.5,0.5],[1,1]]'},'gradient_map':{'color':'#1c3154','endColor':'#ffdda1'},'grain':{'amount':.05},'noise':{'amount':.05},'gaussian_blur':{'radius':3},'motion_blur':{'radius':15,'angle':0},'sharpen':{'radius':2,'percent':150}}.get(kind,{})
         a=self.form_dialog(kind.replace('_',' ').title(),fields) if fields else {}

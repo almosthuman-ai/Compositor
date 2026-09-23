@@ -19,6 +19,11 @@ def compositor_get_workspace() -> dict:
     return call('state')
 
 @server.tool()
+def compositor_list_fonts() -> dict:
+    """List installed font families and styles available to text layers. Use fontFamily, fontStyle and size in text params; no font file path is required."""
+    return call('fonts')
+
+@server.tool()
 def compositor_new_document(width:int=1536,height:int=1024,title:str='Untitled',background:str='#ffffff') -> dict:
     """Create and show a new layered document. Existing documents remain open."""
     return call('new',locals())
@@ -35,7 +40,7 @@ def compositor_activate_document(documentId:str) -> dict:
 
 @server.tool()
 def compositor_edit(operation:Literal['add_layer','import_image','select_layer','update_layer','duplicate_layer','delete_layer','reorder_layer','rasterize','merge_down','flatten','selection','mask','brush','erase','clone','heal','blur_brush','fill','clear','content_fill','filter','copy_selection','cut_selection','crop','canvas_size','image_size','guides','rename','undo','redo'],args:dict,documentId:str|None=None,expectedRevision:int|None=None) -> dict:
-    """Edit the canonical document with undo. Read first; pass expectedRevision to reject stale edits. Layer kinds: raster/text/shape/gradient/adjustment/group. update_layer takes layerId plus name, visible, locked, opacity 0–1, blend, x/y, sx/sy, angle, parent, clipping, params or effects. Brush points are [x,y,pressure?], with size/color/hardness/opacity. Selection kinds: rectangle/ellipse/polygon/wand/all/none/invert/expand/contract/feather/layer_alpha; mode replace/add/subtract/intersect. Regions use x/y/width/height. Filter kind: exposure/levels/curves/hue_saturation/invert/gaussian_blur/sharpen/noise/motion_blur/gradient_map/grayscale/auto_levels. Text params: text/font/size/color/spacing/align. Shape params: shape rectangle/ellipse/rounded/line, width/height/color/stroke/strokeWidth. Every successful operation returns the new revision and layers."""
+    """Edit the canonical document with undo. Read first; pass expectedRevision to reject stale edits. Layer kinds: raster/text/shape/gradient/adjustment/group. update_layer takes layerId plus name, visible, locked, opacity 0–1, blend, x/y, sx/sy, angle, parent, clipping, params or effects. Brush points are [x,y,pressure?], with size/color/hardness/opacity. Selection kinds: rectangle/ellipse/polygon/wand/all/none/invert/expand/contract/feather/layer_alpha; mode replace/add/subtract/intersect. Regions use x/y/width/height. Filter kind: exposure/levels/curves/hue_saturation/invert/gaussian_blur/sharpen/noise/motion_blur/gradient_map/grayscale/auto_levels. Text params: text/fontFamily/fontStyle/size/color/spacing/align. compositor_list_fonts supplies available families and styles; legacy font paths remain supported. Shape params: shape rectangle/ellipse/rounded/line, width/height/color/stroke/strokeWidth. Every successful operation returns the new revision and layers."""
     return call('edit',locals())
 
 @server.tool()
