@@ -5,6 +5,7 @@ from PySide6.QtCore import QObject, Signal, QTimer
 from PIL import Image
 from .document import Document
 from .generation import Generation
+from .generation_source import prepare_source, region_instruction
 from .connectors import StudioConnector
 from .settings import atomic_json
 from .projects import Projects
@@ -76,6 +77,7 @@ class Workspace(QObject):
             return {'path':str(path),'bytes':path.stat().st_size}
         if action=='new':
             d=Document(a.get('width',1536),a.get('height',1024),a.get('title','Untitled'))
+            if a.get('pixelArt'): d.pixel_art={'palette':[],'sampling':'nearest'}
             d.execute('add_layer',{'name':'Background','color':a.get('background','#ffffff')}); self.documents[d.id]=d; self.active=d.id; self.notify(); return d.info()
         if action=='open':
             if Path(a['path']).suffix.lower()=='.compbook':
@@ -124,12 +126,23 @@ class Workspace(QObject):
             self.documents[d.id]=d; self.active=d.id; self.notify(); return d.info()
         d=self.document(a.get('documentId'))
         if action=='document': return d.info()
+        if action=='pixel_art':
+            from .pixel_art import convert, source
+            from .document import Layer
+            if a.get('expectedRevision') is not None and a['expectedRevision']!=d.revision: raise ValueError('The source changed. Refresh the conversion preview first.')
+            image,metadata=convert(source(d,a),a)
+            if a.get('operation','convert')=='preview':
+                data=io.BytesIO(); image.save(data,'PNG')
+                return {'width':image.width,'height':image.height,'mimeType':'image/png','data':base64.b64encode(data.getvalue()).decode(),**metadata}
+            converted=Document(*image.size,title=a.get('title') or d.title+' — pixel art'); converted.pixel_art=metadata
+            converted.add(Layer(name='Pixel artwork',image=image,resampling='nearest',provenance={'sourceDocument':d.id,'sourceRevision':d.revision,'conversion':metadata['conversion']}))
+            self.documents[converted.id]=converted; self.active=converted.id; self.notify(); return converted.info()
         if action=='preview_generation': return self.creative_request(d,a)
         if action=='edit':
             result=d.execute(a['operation'],a.get('args'),a.get('expectedRevision')); self.notify(); return result
         if action=='save':
             result=d.save(a.get('path') or d.path); self.notify(); return result
-        if action=='export': return d.export(a['path'],a.get('quality',95))
+        if action=='export': return d.export(a['path'],a.get('quality',95),a.get('scale',1))
         if action=='close':
             if d.dirty and not a.get('discard'): raise ValueError('Save this document first, or explicitly discard its unsaved changes')
             if self.projects.for_document(d.id): self.projects.flush()
@@ -141,31 +154,25 @@ class Workspace(QObject):
                 if min(x,y)<0 or min(w,h)<1 or x+w>im.width or y+h>im.height: raise ValueError('Inspection region must fit inside the canvas')
                 im=im.crop((x,y,x+w,y+h))
             if a.get('maxDimension'):
-                im=im.copy(); im.thumbnail((int(a['maxDimension']),)*2,Image.Resampling.LANCZOS)
+                im=im.copy(); im.thumbnail((int(a['maxDimension']),)*2,Image.Resampling.NEAREST if d.pixel_art else Image.Resampling.LANCZOS)
+            if d.pixel_art:
+                data=io.BytesIO(); im.save(data,'PNG')
+                return {'documentId':d.id,'revision':d.revision,'width':im.width,'height':im.height,'mimeType':'image/png','data':base64.b64encode(data.getvalue()).decode()}
             bg=Image.new('RGBA',im.size,'white'); im=Image.alpha_composite(bg,im).convert('RGB'); data=io.BytesIO(); im.save(data,'JPEG',quality=90,subsampling=0)
             return {'documentId':d.id,'revision':d.revision,'width':im.width,'height':im.height,'mimeType':'image/jpeg','data':base64.b64encode(data.getvalue()).decode()}
         if action=='prepare_generation':
             folder=self.settings.root/'prepared'/str(uuid.uuid4()); folder.mkdir(parents=True)
-            im=d.render(); box=a.get('box'); kind=a.get('kind','edit')
-            if kind=='patch':
-                if box is None and d.selection is not None:
-                    bounds=d.selection.getbbox()
-                    if bounds: box={'x':bounds[0],'y':bounds[1],'width':bounds[2]-bounds[0],'height':bounds[3]-bounds[1]}
-                if box is None: raise ValueError('Select the region to send for refinement')
-                x,y=int(box['x']),int(box['y']); w=int(box.get('width',box.get('size',0))); h=int(box.get('height',box.get('size',0)))
-                if min(x,y)<0 or min(w,h)<1 or x+w>im.width or y+h>im.height: raise ValueError('Region must fit inside the canvas')
-                box={'x':x,'y':y,'width':w,'height':h}; im=im.crop((x,y,x+w,y+h))
-                if d.selection is not None: d.selection.crop((x,y,x+w,y+h)).save(folder/'selection.png')
+            kind=a.get('kind','edit'); source=prepare_source(d,kind,a.get('box'),folder,a.get('resampling'))
             request=self.creative_request(d,{**a,'prompt':a.get('prompt') or 'Edit the supplied image.','kind':kind})
-            if kind!='generate': im.save(folder/'source.png')
+            if source.get('editArea'): request['prompt']+='\n\n'+region_instruction(source)
             references=[]
             for i,ref in enumerate(request['references']):
                 target=folder/f'reference-{i}.png'
                 with Image.open(ref['path']) as image: image.convert('RGBA').save(target)
                 references.append({**ref,'path':str(target)})
-            source_path=str(folder/'source.png') if kind!='generate' else None
-            self.prepared_generation={'documentId':d.id,'sourceRevision':d.revision,'kind':kind,'box':box,'sourcePath':source_path,'created':time.time(),'prompt':request['prompt'],'userPrompt':request['userPrompt'],'creativeContext':request['creativeContext'],'references':references,'inputs':([source_path] if source_path else [])+[r['path'] for r in references]}
-            self.prepared_generation['requestedSize']=a.get('size')
+            source_path=source['sourcePath']
+            self.prepared_generation={**source,'documentId':d.id,'sourceRevision':d.revision,'kind':kind,'created':time.time(),'prompt':request['prompt'],'userPrompt':request['userPrompt'],'creativeContext':request['creativeContext'],'references':references,'inputs':([source_path] if source_path else [])+[r['path'] for r in references]}
+            self.prepared_generation['requestedSize']='x'.join(map(str,source['workingSize'])) if source.get('workingSize') else a.get('size')
             atomic_json(folder/'source.json',self.prepared_generation); return self.prepared_generation
         if action=='generate':
             route=a.get('route') or self.settings.values['generationRoute']
@@ -219,7 +226,7 @@ class Workspace(QObject):
                 file=folder/(d.id+'.compwin')
                 if self.recovered_revisions.get(d.id)!=d.revision or not file.exists():
                     d.save(file,mark_saved=False); self.recovered_revisions[d.id]=d.revision
-                records.append({'id':d.id,'file':str(file),'path':d.path,'dirty':d.dirty})
+                records.append({'id':d.id,'file':str(file),'path':d.path,'dirty':d.dirty,'activeLayer':d.active})
             atomic_json(folder/'session.json',{'documents':records,'active':self.active,'activeProject':self.projects.active})
         except Exception as e: self.message.emit('Recovery save failed: '+str(e))
 
@@ -229,7 +236,9 @@ class Workspace(QObject):
         try:
             state=json.loads(index.read_text(encoding='utf-8'))
             for row in state['documents']:
-                d=Document.load(row['file']); d.path=row.get('path'); d.saved_revision=-1 if row['dirty'] else 0; self.documents[d.id]=d
+                d=Document.load(row['file']); d.path=row.get('path'); d.saved_revision=-1 if row['dirty'] else 0
+                if row.get('activeLayer') in {l.id for l in d.layers}: d.active=row['activeLayer']
+                self.documents[d.id]=d
             self.active=state.get('active')
             self.projects.active=state.get('activeProject')
         except Exception as e: self.message.emit('Recovery could not be fully restored: '+str(e))

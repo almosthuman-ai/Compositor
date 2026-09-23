@@ -219,10 +219,14 @@ class ChatSession(QObject):
                 raw=base64.b64decode(result,validate=True)
             import io
             (folder/'provider-original').write_bytes(raw)
-            with Image.open(io.BytesIO(raw)) as im: im.convert('RGBA').save(folder/'result.png'); actual=list(im.size)
             source=self.native_sources.pop(item.get('id'),{})
+            from .generation_source import normalize_candidate
+            with Image.open(io.BytesIO(raw)) as im:
+                actual=list(im.size); candidate=normalize_candidate(im,source); candidate.save(folder/'result.png')
             job={'id':job_id,'status':'complete','created':time.time(),'finished':time.time(),'documentId':source.get('documentId',self.active_document),'sourceRevision':source.get('sourceRevision',self.source_revision),'kind':'subscription','box':source.get('box'),'prompt':item.get('revisedPrompt') or 'ChatGPT image','config':{'provider':'chatgpt-subscription','model':self.model or 'account default'},'result':str(folder/'result.png'),'actualSize':actual,'nativeItemId':item.get('id'),'autoApply':False}
             job['creativeContext']=source.get('creativeContext',{}); job['userPrompt']=source.get('userPrompt',job['prompt']); job['requestedPrompt']=source.get('prompt'); job['references']=[]
+            job['candidateSize']=list(candidate.size)
+            job.update({key:source[key] for key in ('workingSize','workingContentBox','selectionBox','editArea','resampling') if key in source})
             if source.get('sourcePath'):
                 shutil.copyfile(source['sourcePath'],folder/'source.png'); job['inputs']=[str(folder/'source.png')]
                 mask=Path(source['sourcePath']).with_name('selection.png')

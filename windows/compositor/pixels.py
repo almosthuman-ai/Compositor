@@ -8,6 +8,11 @@ BLENDS = ['normal', 'multiply', 'screen', 'overlay', 'soft_light', 'hard_light',
           'linear_burn', 'difference', 'exclusion', 'subtract', 'divide',
           'vivid_light', 'linear_light', 'pin_light', 'hard_mix']
 
+def resampling(mode='smooth'):
+    if mode=='nearest': return Image.Resampling.NEAREST
+    if mode=='smooth': return Image.Resampling.LANCZOS
+    raise ValueError('Choose smooth or nearest-neighbor sampling')
+
 def blend(back, front, mode='normal', opacity=1):
     # Separable blend arithmetic has no neighborhood dependency. Bound temporary
     # float arrays by processing strips while retaining exact compositing math.
@@ -99,13 +104,13 @@ def content(layer):
 def placed(layer, size, include_mask=True):
     im=content(layer)
     if include_mask and layer.mask is not None and layer.mask_enabled:
-        im=im.copy(); im.putalpha(ImageChops.multiply(im.getchannel('A'),layer.mask.resize(im.size)))
+        im=im.copy(); im.putalpha(ImageChops.multiply(im.getchannel('A'),layer.mask.resize(im.size,resampling(layer.resampling))))
     w,h=max(1,round(im.width*abs(layer.sx))),max(1,round(im.height*abs(layer.sy)))
     if w*h > 100_000_000: raise ValueError('Transformed layer exceeds 100 megapixels')
-    if im.size != (w,h): im=im.resize((w,h),Image.Resampling.LANCZOS)
+    if im.size != (w,h): im=im.resize((w,h),resampling(layer.resampling))
     if layer.sx < 0: im=ImageOps.mirror(im)
     if layer.sy < 0: im=ImageOps.flip(im)
-    if layer.angle: im=im.rotate(-layer.angle,Image.Resampling.BICUBIC,expand=True)
+    if layer.angle: im=im.rotate(-layer.angle,Image.Resampling.NEAREST if layer.resampling=='nearest' else Image.Resampling.BICUBIC,expand=True)
     result=Image.new('RGBA',size)
     result.alpha_composite(im,(round(layer.x+(w-im.width)/2),round(layer.y+(h-im.height)/2)))
     return result

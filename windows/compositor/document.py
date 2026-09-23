@@ -29,6 +29,7 @@ class Layer:
     sx: float = 1
     sy: float = 1
     angle: float = 0
+    resampling: str = 'smooth'
     parent: str | None = None
     clipping: bool = False
     params: dict = field(default_factory=dict)
@@ -48,13 +49,13 @@ class Document:
         self.width,self.height=dimensions(width,height); self.title=title; self.id=uid()
         self.layers=[]; self.active=None; self.selection=None; self.revision=0
         self.state_id=uid(); self.saved_state_id=None; self.saved_revision=-1
-        self.path=None; self.history=[]; self.future=[]; self.guides=[]; self.studio={}; self._cache=None
+        self.path=None; self.history=[]; self.future=[]; self.guides=[]; self.studio={}; self.pixel_art={}; self._cache=None
 
     def snapshot(self):
-        return (self.width,self.height,self.title,[l.clone() for l in self.layers],self.active,self.selection,copy.deepcopy(self.guides),copy.deepcopy(self.studio),self.state_id)
+        return (self.width,self.height,self.title,[l.clone() for l in self.layers],self.active,self.selection,copy.deepcopy(self.guides),copy.deepcopy(self.studio),self.state_id,copy.deepcopy(self.pixel_art))
 
     def restore(self,s):
-        self.width,self.height,self.title,self.layers,self.active,self.selection,self.guides,self.studio,self.state_id=s
+        self.width,self.height,self.title,self.layers,self.active,self.selection,self.guides,self.studio,self.state_id,self.pixel_art=s
         self._cache=None
 
     @property
@@ -72,7 +73,7 @@ class Document:
         box=self.selection.getbbox() if self.selection is not None else None
         return {'id':self.id,'title':self.title,'width':self.width,'height':self.height,'path':self.path,'revision':self.revision,
                 'dirty':self.dirty,'activeLayer':self.active,'layers':[l.info() for l in self.layers],
-                'selection':list(box) if box else None,'guides':self.guides,'studio':self.studio,
+                'selection':list(box) if box else None,'guides':self.guides,'studio':self.studio,'pixelArt':self.pixel_art,
                 'undo':[h[0] for h in self.history],'redo':[h[0] for h in self.future]}
 
     def layer(self,layer_id=None):
@@ -88,6 +89,11 @@ class Document:
     def execute(self,op,args=None,expected_revision=None):
         if expected_revision is not None and expected_revision != self.revision: raise ValueError(f'Document changed: expected revision {expected_revision}, current {self.revision}')
         args=args or {}
+        if op=='select_layer':
+            # Choosing an editing target changes neither the artwork nor its
+            # undo branch. Human clicks and tool calls share this path.
+            self.active=self.layer(args['layerId']).id
+            return self.info()
         if op in ('undo','redo'):
             source,target=(self.history,self.future) if op=='undo' else (self.future,self.history)
             if not source: return self.info()
@@ -107,6 +113,7 @@ class Document:
         dimensions(self.width,self.height)
         ids={l.id for l in self.layers}
         for l in self.layers:
+            pixels.resampling(l.resampling)
             if l.blend not in pixels.BLENDS: raise ValueError('Unknown blend mode')
             if not 0 <= l.opacity <= 1: raise ValueError('Opacity must be 0–1')
             if not all(math.isfinite(v) for v in (l.x,l.y,l.sx,l.sy,l.angle)) or l.sx==0 or l.sy==0: raise ValueError('Transform must be finite and nonzero')
@@ -122,6 +129,7 @@ class Document:
                 parent=ancestor.parent
 
     def add(self,layer):
+        if self.pixel_art: layer.resampling='nearest'
         i=next((i+1 for i,l in enumerate(self.layers) if l.id==self.active),len(self.layers))
         self.layers.insert(i,layer); self.active=layer.id
 
@@ -158,7 +166,6 @@ class Document:
             with Image.open(file) as source: im=ImageOps.exif_transpose(source).convert('RGBA')
             dimensions(*im.size)
             self.add(Layer(name=a.get('name',file.stem),image=im,x=a.get('x',0),y=a.get('y',0),provenance={'source':str(file),**a.get('provenance',{})}))
-        elif op=='select_layer': self.active=self.layer(a['layerId']).id
         elif op=='update_layer':
             l=self.layer(a.get('layerId'))
             if l.locked and any(k in a for k in ('x','y','sx','sy','angle','params')): raise ValueError('Layer is locked')
@@ -174,7 +181,7 @@ class Document:
                         x=(child.x-l.x)*sx; y=(child.y-l.y)*sy
                         child.x=a.get('x',l.x)+x*math.cos(radians)-y*math.sin(radians); child.y=a.get('y',l.y)+x*math.sin(radians)+y*math.cos(radians)
                         child.sx*=sx; child.sy*=sy; child.angle+=angle
-            allowed={'name','visible','locked','opacity','blend','x','y','sx','sy','angle','parent','clipping','mask_enabled','params','effects'}
+            allowed={'name','visible','locked','opacity','blend','x','y','sx','sy','angle','resampling','parent','clipping','mask_enabled','params','effects'}
             for key,value in a.items():
                 if key=='layerId': continue
                 if key not in allowed: raise ValueError(f'Unsupported layer property: {key}')
@@ -221,9 +228,11 @@ class Document:
                 if self.selection is None: raise ValueError('Make a selection first')
                 if l.kind not in ('group','adjustment'): self.raster(l)
                 l.mask=self.selection.copy()
-        elif op in ('brush','erase','clone','heal','blur_brush'):
-            l=self.layer(a.get('layerId')); stroke=self.stroke_mask(a)
-            if self.selection is not None: stroke=ImageChops.multiply(stroke,self.selection)
+        elif op in ('brush','erase','pencil','pixel_erase','clone','heal','blur_brush'):
+            l=self.layer(a.get('layerId')); stroke=self.pencil_mask(a) if op in ('pencil','pixel_erase') else self.stroke_mask(a)
+            if self.selection is not None:
+                selection=self.selection.point(lambda v:255 if v>=128 else 0) if op in ('pencil','pixel_erase') else self.selection
+                stroke=ImageChops.multiply(stroke,selection)
             if a.get('target')=='mask':
                 if l.locked: raise ValueError('Layer is locked')
                 # Preserve image alpha independently when materializing a transformed mask.
@@ -236,11 +245,12 @@ class Document:
                     l.image=pixels.placed(l,size,include_mask=False); l.kind='raster'; l.params={}; l.x=l.y=l.angle=0; l.sx=l.sy=1; l.mask=mapped_mask
                 l.mask=Image.composite(Image.new('L',size,a.get('maskValue',255)),l.mask or Image.new('L',size,255),stroke); return
             old=self.raster(l).copy()
-            if op=='erase':
+            if op in ('erase','pixel_erase'):
                 after=old.copy(); after.putalpha(ImageChops.multiply(old.getchannel('A'),ImageOps.invert(stroke)))
-            elif op=='brush':
+            elif op in ('brush','pencil'):
                 from PIL import ImageColor
                 color=ImageColor.getcolor(a.get('color','#ffffff'),'RGBA'); paint=Image.new('RGBA',size,color)
+                if op=='pencil': color=(*color[:3],255)
                 paint.putalpha(stroke.point(lambda v:int(v*color[3]/255))); after=Image.alpha_composite(old,paint)
             elif op=='clone':
                 source=self.render() if a.get('sampleMerged',True) else old
@@ -282,9 +292,10 @@ class Document:
             self.width,self.height=w,h; self.selection=None
         elif op=='image_size':
             w,h=dimensions(a['width'],a['height']); sx,sy=w/self.width,h/self.height
+            method=a.get('resampling','nearest' if self.pixel_art else 'smooth'); sampling=pixels.resampling(method)
             for l in self.layers:
-                l.x*=sx; l.y*=sy; l.sx*=sx; l.sy*=sy
-                if l.kind in ('group','adjustment') and l.mask is not None: l.mask=l.mask.resize((w,h),Image.Resampling.LANCZOS)
+                l.x*=sx; l.y*=sy; l.sx*=sx; l.sy*=sy; l.resampling=method
+                if l.kind in ('group','adjustment') and l.mask is not None: l.mask=l.mask.resize((w,h),sampling)
             self.width,self.height=w,h; self.selection=None
         elif op=='guides': self.guides=copy.deepcopy(a.get('guides',[]))
         elif op=='rename': self.title=a['title']
@@ -331,6 +342,19 @@ class Document:
             elif mode=='intersect': mask=ImageChops.darker(self.selection,mask)
         self.selection=mask
 
+    def pencil_mask(self,a):
+        mask=Image.new('L',(self.width,self.height)); draw=ImageDraw.Draw(mask)
+        n=max(1,min(256,int(a.get('size',1)))); offset=(n-1)//2; last=None
+        for point in a['points']:
+            x,y=math.floor(point[0]),math.floor(point[1])
+            if last is None: last=(x,y)
+            steps=max(abs(x-last[0]),abs(y-last[1]),1)
+            for i in range(steps+1):
+                px=round(last[0]+(x-last[0])*i/steps)-offset; py=round(last[1]+(y-last[1])*i/steps)-offset
+                draw.rectangle((px,py,px+n-1,py+n-1),fill=255)
+            last=(x,y)
+        return mask
+
     def stroke_mask(self,a):
         mask=Image.new('L',(self.width,self.height)); points=a['points']; radius=max(.5,float(a.get('size',32))/2)
         opacity=max(0,min(1,float(a.get('opacity',1)))); hardness=max(0,min(1,float(a.get('hardness',.8))))
@@ -356,7 +380,7 @@ class Document:
         path=Path(path).resolve(); path.parent.mkdir(parents=True,exist_ok=True)
         if path.suffix.lower() not in ('.compwin','.ora'): raise ValueError('Save layered documents as .compwin or .ora; use Export for flat images')
         temp=path.with_name(path.name+'.'+uid()+'.tmp')
-        manifest={'format':'com.compositor.windows','version':1,'id':self.id,'title':self.title,'width':self.width,'height':self.height,'active':self.active,'guides':self.guides,'studio':self.studio,'layers':[]}
+        manifest={'format':'com.compositor.windows','version':1,'id':self.id,'title':self.title,'width':self.width,'height':self.height,'active':self.active,'guides':self.guides,'studio':self.studio,'pixelArt':self.pixel_art,'layers':[]}
         try:
             with zipfile.ZipFile(temp,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=2) as archive:
                 if path.suffix.lower()=='.ora': archive.writestr('mimetype','image/openraster',compress_type=zipfile.ZIP_STORED)
@@ -412,6 +436,7 @@ class Document:
             m=json.loads(archive.read('manifest.json'))
             if m.get('format')!='com.compositor.windows' or m.get('version')!=1: raise ValueError('Unsupported document format/version')
             d=cls(m['width'],m['height'],m['title']); d.id=m['id']; d.active=m.get('active'); d.guides=m.get('guides',[]); d.studio=m.get('studio',{})
+            d.pixel_art=m.get('pixelArt',{})
             for r in m['layers']:
                 for key in ('image','mask'):
                     if r.get(key): r[key]=Image.open(io.BytesIO(archive.read(r[key]))).convert('L' if key=='mask' else 'RGBA')
@@ -480,13 +505,16 @@ class Document:
             l.mask_enabled=r.get('maskEnabled',True); d.layers.append(l)
         d.active=m.get('activeLayerID'); d.conversion_report=report; return d
 
-    def export(self,path,quality=95):
+    def export(self,path,quality=95,scale=1):
         path=Path(path).resolve()
         if self.path and path==Path(self.path): raise ValueError('Export cannot replace the layered document')
         originals={l.provenance.get('source') for l in self.layers}
         if str(path) in originals: raise ValueError('Export to a new path to preserve your imported original')
         if path.suffix.lower() not in ('.png','.jpg','.jpeg','.webp','.tif','.tiff','.bmp'): raise ValueError('Choose PNG, JPEG, WebP, TIFF or BMP')
         im=self.render(); path.parent.mkdir(parents=True,exist_ok=True)
+        if int(scale)!=scale or not 1<=scale<=64: raise ValueError('Export scale must be a whole number from 1 to 64')
+        if scale!=1:
+            size=dimensions(im.width*scale,im.height*scale); im=im.resize(size,Image.Resampling.NEAREST)
         if path.suffix.lower() in ('.jpg','.jpeg','.bmp'):
             background=Image.new('RGBA',im.size,'white'); im=Image.alpha_composite(background,im).convert('RGB')
         temp=path.with_name(path.stem+'.'+uid()+path.suffix)

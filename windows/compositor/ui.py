@@ -74,7 +74,7 @@ class ArtworkItem(QGraphicsPixmapItem):
 class Canvas(QGraphicsView):
     def __init__(self,window):
         super().__init__(); self.window=window; self.ws=window.ws; self.setScene(QGraphicsScene(self)); self.art=ArtworkItem(); self.scene().addItem(self.art)
-        self.preview_box=None; self.art.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+        self.pixel_grid=True; self.preview_box=None; self.art.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
         self.gesture=None; self.preview_timer=QTimer(self); self.preview_timer.setSingleShot(True); self.preview_timer.setInterval(24); self.preview_timer.timeout.connect(self.render_preview)
         self.overlay=QGraphicsPathItem(); self.overlay.setZValue(2); self.scene().addItem(self.overlay)
         pen=QPen(QColor('#8ac5ff'),1,Qt.PenStyle.DashLine); pen.setCosmetic(True); self.overlay.setPen(pen)
@@ -117,12 +117,27 @@ class Canvas(QGraphicsView):
         if not self.ws.active: self.art.setPixmap(QPixmap()); return
         d=self.ws.document(); changed=d.id!=self.document_id; self.document_id=d.id
         if changed: self.last_stroke=None
+        self.art.setTransformationMode(Qt.TransformationMode.FastTransformation if d.pixel_art else Qt.TransformationMode.SmoothTransformation)
+        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform,not bool(d.pixel_art))
         self.art.setPixmap(pixmap(d.render())); self.scene().setSceneRect(QRectF(-120,-120,d.width+240,d.height+240)); self.selection_overlay()
         if changed: self.fit()
 
     def fit(self):
         if self.ws.active:
-            d=self.ws.document(); self.fitInView(QRectF(-64,-64,d.width+128,d.height+128),Qt.AspectRatioMode.KeepAspectRatio); self.update_view_chrome(); self.selection_overlay()
+            d=self.ws.document()
+            if d.pixel_art:
+                zoom=max(1,min((self.viewport().width()-48)//d.width,(self.viewport().height()-48)//d.height)); self.resetTransform(); self.scale(zoom,zoom); self.centerOn(d.width/2,d.height/2)
+            else: self.fitInView(QRectF(-64,-64,d.width+128,d.height+128),Qt.AspectRatioMode.KeepAspectRatio)
+            self.update_view_chrome(); self.selection_overlay()
+
+    def drawForeground(self,painter,rect):
+        super().drawForeground(painter,rect)
+        if not self.ws.active or not self.ws.document().pixel_art or not self.pixel_grid or self.transform().m11()<8: return
+        d=self.ws.document(); painter.save(); painter.setRenderHint(QPainter.RenderHint.Antialiasing,False)
+        pen=QPen(QColor(110,110,110,100)); pen.setCosmetic(True); painter.setPen(pen)
+        for x in range(max(0,math.floor(rect.left())),min(d.width,math.ceil(rect.right()))+1): painter.drawLine(QPointF(x,0),QPointF(x,d.height))
+        for y in range(max(0,math.floor(rect.top())),min(d.height,math.ceil(rect.bottom()))+1): painter.drawLine(QPointF(0,y),QPointF(d.width,y))
+        painter.restore()
 
     def selection_overlay(self):
         pen=QPen(QColor('#8ac5ff'),1,Qt.PenStyle.DashLine); pen.setCosmetic(True); self.overlay.setPen(pen)
@@ -173,13 +188,17 @@ class Canvas(QGraphicsView):
         self.source_document_id=self.ws.active
         self.move_mode='translate'
         tool=self.window.tool
-        if tool in ('brush','erase'):
+        if tool in ('brush','erase','pencil'):
             try:
                 layer=self.ws.document().layer()
                 if layer.locked: raise ValueError('Layer is locked')
                 if layer.kind in ('group','adjustment') and not self.window.mask_target.isChecked(): raise ValueError('Choose a pixel layer or paint its mask')
                 args={'size':self.window.brush_size.value(),'opacity':self.window.brush_opacity.value()/100,'hardness':self.window.hardness.value()/100,'color':self.window.color}
                 if self.window.mask_target.isChecked(): args.update(target='mask',maskValue=0 if tool=='erase' else 255)
+                if tool=='pencil':
+                    args.update(size=self.window.pixel_size.value(),opacity=1,hardness=1)
+                    tool='pixel_erase' if self.window.pixel_erase.isChecked() else 'pencil'
+                    if args.get('target')=='mask': args['maskValue']=0 if tool=='pixel_erase' else 255
                 self.gesture=EditPreview(self.ws.document(),tool,args); self.stroke_shift=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
                 self.ws.view['gesture']={'documentId':self.source_document_id,'sourceRevision':self.source_revision,'layerId':layer.id,'operation':tool,'status':'preview'}
                 self.window.statusBar().showMessage('Painting · Esc to cancel'); self.render_preview()
@@ -366,9 +385,9 @@ class Editor(QMainWindow):
         menu.addAction(a); return a
 
     def build_menus(self):
-        file=self.menuBar().addMenu('&File'); self.action(file,'New…',self.new_document,'Ctrl+N'); self.action(file,'Open…',self.open_file,'Ctrl+O'); self.action(file,'Add image as layer…',self.import_file,'Ctrl+Shift+O'); self.action(file,'Save',self.save,'Ctrl+S'); self.action(file,'Save as…',lambda:self.save(True),'Ctrl+Shift+S'); self.action(file,'Export image…',self.export,'Ctrl+Alt+Shift+S'); file.addSeparator(); self.action(file,'Settings…',self.settings_dialog); self.action(file,'Exit',self.close,'Alt+F4')
+        file=self.menuBar().addMenu('&File'); self.action(file,'New…',self.new_document,'Ctrl+N'); self.action(file,'New pixel canvas…',self.new_pixel_document); self.action(file,'Open…',self.open_file,'Ctrl+O'); self.action(file,'Add image as layer…',self.import_file,'Ctrl+Shift+O'); self.action(file,'Save',self.save,'Ctrl+S'); self.action(file,'Save as…',lambda:self.save(True),'Ctrl+Shift+S'); self.action(file,'Export image…',self.export,'Ctrl+Alt+Shift+S'); file.addSeparator(); self.action(file,'Settings…',self.settings_dialog); self.action(file,'Exit',self.close,'Alt+F4')
         edit=self.menuBar().addMenu('&Edit'); self.action(edit,'Undo',lambda:self.edit('undo'),'Ctrl+Z'); self.action(edit,'Redo',lambda:self.edit('redo'),'Ctrl+Shift+Z'); edit.addSeparator(); self.action(edit,'Copy selection to layer',lambda:self.edit('copy_selection'),'Ctrl+J'); self.action(edit,'Cut selection to layer',lambda:self.edit('cut_selection'),'Ctrl+Shift+J'); self.action(edit,'Copy merged to clipboard',self.copy_merged,'Ctrl+Shift+C'); self.action(edit,'Paste image',self.paste,'Ctrl+V'); self.action(edit,'Fill with foreground',lambda:self.edit('fill',{'color':self.color}),'Alt+Backspace'); self.action(edit,'Clear pixels',lambda:self.edit('clear'),'Delete'); self.action(edit,'Content-aware fill',lambda:self.edit('content_fill'),'Shift+Backspace')
-        image=self.menuBar().addMenu('&Image'); self.action(image,'Image size…',lambda:self.size_dialog('image_size')); self.action(image,'Canvas size…',lambda:self.size_dialog('canvas_size')); self.action(image,'Crop to selection',self.crop_selection)
+        image=self.menuBar().addMenu('&Image'); self.action(image,'Image size…',lambda:self.size_dialog('image_size')); self.action(image,'Canvas size…',lambda:self.size_dialog('canvas_size')); self.action(image,'Crop to selection',self.crop_selection); image.addSeparator(); self.action(image,'Convert to pixel art…',self.pixel_art_dialog)
         layer=self.menuBar().addMenu('&Layer'); self.action(layer,'New transparent layer',lambda:self.edit('add_layer',{'name':'Paint layer'}),'Ctrl+Shift+N'); self.action(layer,'New group',lambda:self.edit('add_layer',{'kind':'group','name':'Group'})); self.action(layer,'Duplicate',lambda:self.edit('duplicate_layer')); self.action(layer,'Rename…',self.rename_layer); self.action(layer,'Delete layer',lambda:self.edit('delete_layer')); self.action(layer,'Rasterize',lambda:self.edit('rasterize')); self.action(layer,'Merge down',lambda:self.edit('merge_down'),'Ctrl+E'); self.action(layer,'Flatten',lambda:self.edit('flatten'),'Ctrl+Shift+E'); self.action(layer,'Flip horizontally',lambda:self.flip('sx')); self.action(layer,'Flip vertically',lambda:self.flip('sy')); self.action(layer,'Layer effects…',self.effects_dialog)
         mask=layer.addMenu('Mask');
         for title,mode in [('From selection','selection'),('Reveal all','white'),('Hide all','black'),('Invert','invert'),('Feather','blur'),('Remove','remove')]: self.action(mask,title,lambda mode=mode:self.edit('mask',{'mode':mode}))
@@ -384,7 +403,7 @@ class Editor(QMainWindow):
 
     def build_tools(self):
         toolbar=QToolBar('Tools'); toolbar.setObjectName('toolRail'); toolbar.setMovable(False); toolbar.setOrientation(Qt.Orientation.Vertical); toolbar.setIconSize(QSize(20,20)); toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly); self.addToolBar(Qt.ToolBarArea.LeftToolBarArea,toolbar); self.tool_actions={}; group=QActionGroup(self); group.setExclusive(True)
-        for label,key,shortcut in [('Move','move','V'),('Rectangular marquee','rectangle','M'),('Elliptical marquee','ellipse',None),('Lasso','lasso','L'),('Magic wand','wand','W'),('Crop','crop','C'),('Eyedropper','eyedropper','I'),('Healing brush','heal','J'),('Brush','brush','B'),('Clone stamp','clone','S'),('Eraser','erase','E'),('Gradient','gradient','G'),('Blur','blur_brush',None),('Type','text','T'),('Shape','shape','U'),('Hand','hand','H')]:
+        for label,key,shortcut in [('Move','move','V'),('Rectangular marquee','rectangle','M'),('Elliptical marquee','ellipse',None),('Lasso','lasso','L'),('Magic wand','wand','W'),('Crop','crop','C'),('Eyedropper','eyedropper','I'),('Healing brush','heal','J'),('Brush','brush','B'),('Pixel pencil','pencil','P'),('Clone stamp','clone','S'),('Eraser','erase','E'),('Gradient','gradient','G'),('Blur','blur_brush',None),('Type','text','T'),('Shape','shape','U'),('Hand','hand','H')]:
             a=QAction(icon(key),label,self); a.setCheckable(True); a.setToolTip(label+(f' ({shortcut})' if shortcut else '')); a.triggered.connect(lambda checked,key=key:self.set_tool(key)); group.addAction(a); toolbar.addAction(a); self.tool_actions[key]=a
             if shortcut: a.setShortcut(shortcut)
             toolbar.widgetForAction(a).setFixedSize(34,32); toolbar.widgetForAction(a).setAccessibleName(label)
@@ -405,7 +424,9 @@ class Editor(QMainWindow):
         self.brush_size=QSpinBox(); self.brush_size.setRange(1,2048); self.brush_size.setValue(32); self.brush_size.setSuffix(' px'); self.brush_size.setFixedWidth(82); self.brush_size.setAccessibleName('Brush size'); option(QLabel(' Size '),paint); option(self.brush_size,paint)
         self.brush_opacity=QSpinBox(); self.brush_opacity.setRange(1,100); self.brush_opacity.setValue(100); self.brush_opacity.setSuffix('%'); self.brush_opacity.setFixedWidth(72); self.brush_opacity.setAccessibleName('Brush opacity'); option(QLabel(' Opacity '),paint); option(self.brush_opacity,paint)
         self.hardness=QSpinBox(); self.hardness.setRange(0,100); self.hardness.setValue(80); self.hardness.setSuffix('%'); self.hardness.setFixedWidth(72); self.hardness.setAccessibleName('Brush hardness'); option(QLabel(' Hardness '),paint); option(self.hardness,paint)
-        self.mask_target=QCheckBox('Paint mask'); option(self.mask_target,paint)
+        self.mask_target=QCheckBox('Paint mask'); option(self.mask_target,paint|{'pencil'})
+        self.pixel_size=QSpinBox(); self.pixel_size.setRange(1,256); self.pixel_size.setValue(1); self.pixel_size.setSuffix(' px'); option(self.pixel_size,{'pencil'})
+        self.pixel_erase=QCheckBox('Erase pixels'); option(self.pixel_erase,{'pencil'})
         self.tolerance=QSpinBox(); self.tolerance.setRange(0,255); self.tolerance.setValue(32); self.tolerance.setAccessibleName('Magic wand tolerance'); option(QLabel(' Tolerance '),{'wand'}); option(self.tolerance,{'wand'})
         self.shape_kind=QComboBox(); self.shape_kind.addItems(['rectangle','ellipse','rounded','line']); option(self.shape_kind,{'shape'})
         self.radial=QCheckBox('Radial'); option(self.radial,{'gradient'})
@@ -436,7 +457,7 @@ class Editor(QMainWindow):
         stack=QSplitter(Qt.Orientation.Vertical); stack.setChildrenCollapsible(False); stack.setHandleWidth(4); outer.addWidget(stack)
         def section(title,widget):
             tabs=QTabWidget(); tabs.addTab(widget,title); stack.addWidget(tabs); return tabs
-        self.color_panel=ColorPanel(self); section('Color',self.color_panel).setMinimumHeight(150); self.color_panel.sync()
+        self.color_panel=ColorPanel(self); self.color_section=section('Color',self.color_panel); self.color_section.setMinimumHeight(150); self.color_panel.sync()
         properties=QWidget(); prop=QVBoxLayout(properties); prop.setContentsMargins(12,8,12,8); prop.setSpacing(6)
         self.layer_caption=QLabel('No layer selected'); self.layer_caption.setWordWrap(True); prop.addWidget(self.layer_caption)
         from .text_ui import TextProperties
@@ -447,6 +468,7 @@ class Editor(QMainWindow):
             spin=QDoubleSpinBox(); spin.setRange(-100000,100000); spin.setDecimals(1); spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons); spin.setMinimumWidth(60); spin.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed); spin.setSuffix(' px' if key!='angle' else '°'); spin.setSingleStep(1); spin.setAccessibleName({'sx':'Layer width','sy':'Layer height'}.get(key,label)); spin.editingFinished.connect(lambda key=key,spin=spin:self.transform_changed(key,spin.value())); self.transform_fields[key]=spin
             fields.addWidget(QLabel(label),r,c); fields.addWidget(spin,r,c+1)
         flips=QHBoxLayout(); flips.setSpacing(0); flips.addWidget(icon_button('flip_h','Flip horizontally',lambda:self.flip('sx'))); flips.addWidget(icon_button('flip_v','Flip vertically',lambda:self.flip('sy'))); fields.addLayout(flips,2,2,1,2); prop.addLayout(fields)
+        self.layer_sampling=QComboBox(); self.layer_sampling.addItem('Smooth','smooth'); self.layer_sampling.addItem('Nearest neighbor','nearest'); self.layer_sampling.setAccessibleName('Layer sampling'); self.layer_sampling.currentIndexChanged.connect(lambda:self.property_changed('resampling',self.layer_sampling.currentData())); prop.addWidget(self.layer_sampling)
         self.parent_group=QComboBox(); self.parent_group.setAccessibleName('Parent group'); self.parent_group.currentIndexChanged.connect(self.change_group); prop.addWidget(self.parent_group)
         edit_content=QPushButton('Edit content…'); edit_content.clicked.connect(self.edit_layer_content); prop.addWidget(edit_content); prop.addStretch()
         properties_scroll=QScrollArea(); properties_scroll.setWidgetResizable(True); properties_scroll.setFrameShape(QScrollArea.Shape.NoFrame); properties_scroll.setWidget(properties)
@@ -472,6 +494,7 @@ class Editor(QMainWindow):
         self.gen_context=QLabel(); self.gen_context.setWordWrap(True); layout.addWidget(self.gen_context)
         row=QHBoxLayout(); self.gen_kind=QComboBox(); self.gen_kind.addItem('New image','generate'); self.gen_kind.addItem('Edit whole image','edit'); self.gen_kind.addItem('Refine selected area','patch'); row.addWidget(self.gen_kind)
         self.gen_size=QComboBox(); self.gen_size.setEditable(True); self.gen_size.addItems(['1024x1024','1536x1024','1024x1536','2048x1152']); row.addWidget(self.gen_size); layout.addLayout(row)
+        row=QHBoxLayout(); row.addWidget(QLabel('Sampling')); self.gen_sampling=QComboBox(); self.gen_sampling.addItem('Document default',None); self.gen_sampling.addItem('Smooth','smooth'); self.gen_sampling.addItem('Nearest neighbor','nearest'); row.addWidget(self.gen_sampling); layout.addLayout(row)
         row=QHBoxLayout(); ref=QPushButton('References…'); ref.clicked.connect(self.choose_references); row.addWidget(ref); self.ref_label=QLabel('None'); row.addWidget(self.ref_label); layout.addLayout(row)
         self.gen_provider_label=QLabel(); self.gen_provider_label.setWordWrap(True); layout.addWidget(self.gen_provider_label)
         generate=QPushButton('Generate candidate'); generate.clicked.connect(self.generate); layout.addWidget(generate)
@@ -550,7 +573,7 @@ class Editor(QMainWindow):
                     self.layers.addItem(item)
                     if l.id==d.active: self.layers.setCurrentItem(item)
                 if d.active:
-                    l=d.layer(); self.blend.setCurrentText(l.blend); self.opacity.setValue(round(l.opacity*100)); self.locked.setChecked(l.locked); self.clipping.setChecked(l.clipping)
+                    l=d.layer(); self.layer_sampling.setCurrentIndex(max(0,self.layer_sampling.findData(l.resampling))); self.blend.setCurrentText(l.blend); self.opacity.setValue(round(l.opacity*100)); self.locked.setChecked(l.locked); self.clipping.setChecked(l.clipping)
                     self.layer_caption.setText(l.kind.title()+' layer · '+l.name)
                     content=pixels.content(l)
                     for k,spin in self.transform_fields.items(): spin.setValue(abs(l.sx)*content.width if k=='sx' else abs(l.sy)*content.height if k=='sy' else getattr(l,k))
@@ -559,6 +582,8 @@ class Editor(QMainWindow):
                         if group.kind=='group' and group.id!=l.id: self.parent_group.addItem(group.name,group.id)
                     self.parent_group.setCurrentIndex(max(0,self.parent_group.findData(l.parent)))
             self.text_properties.refresh()
+            self.color_panel.show_palette(self.ws.document().pixel_art.get('palette',[]) if self.ws.active else [])
+            self.color_section.setMinimumHeight(max(150,96+min(4,math.ceil(len(self.color_panel.palette_colors)/8))*32))
             selected=self.jobs.currentItem().data(Qt.ItemDataRole.UserRole) if self.jobs.currentItem() else None; self.jobs.clear()
             for job in sorted(self.ws.generation.jobs.values(),key=lambda j:j['created'],reverse=True):
                 if job.get('documentId')!=self.ws.active: continue
@@ -607,7 +632,7 @@ class Editor(QMainWindow):
             content=pixels.content(layer); value=math.copysign(max(.01,value/(content.width if key=='sx' else content.height)),getattr(layer,key))
         self.property_changed(key,value)
     def select_layer(self,item):
-        if not self.refreshing: self.ws.document().active=item.data(Qt.ItemDataRole.UserRole); self.ws.changed.emit()
+        if not self.refreshing: self.edit('select_layer',{'layerId':item.data(Qt.ItemDataRole.UserRole)})
     def layer_changed(self,item):
         if not self.refreshing: self.edit('update_layer',{'layerId':item.data(Qt.ItemDataRole.UserRole),'visible':item.checkState()==Qt.CheckState.Checked})
     def reorder(self,direction):
@@ -640,6 +665,11 @@ class Editor(QMainWindow):
         dialog=QDialog(self); dialog.setWindowTitle(title); layout=QFormLayout(dialog); controls={}
         for key,value in fields.items():
             if isinstance(value,bool): control=QCheckBox(); control.setChecked(value)
+            elif isinstance(value,list):
+                control=QComboBox()
+                for choice in value: control.addItem({'nearest':'Nearest neighbor','smooth':'Smooth'}.get(choice,choice),choice)
+            elif key in ('width','height'):
+                control=QSpinBox(); control.setRange(1,30000); control.setValue(value)
             elif isinstance(value,(int,float)):
                 control=QDoubleSpinBox(); control.setRange(-100000,100000); control.setDecimals(3); control.setValue(value)
             elif key in ('text','story','artDirection'): control=QPlainTextEdit(str(value)); control.setMinimumSize(320,120)
@@ -647,7 +677,7 @@ class Editor(QMainWindow):
             layout.addRow(re.sub(r'(?<=[a-z])(?=[A-Z])',' ',key).replace('_',' ').title(),control); controls[key]=control
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel); buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject); layout.addRow(buttons)
         if dialog.exec()!=QDialog.DialogCode.Accepted: return None
-        return {k:c.isChecked() if isinstance(c,QCheckBox) else c.value() if isinstance(c,QDoubleSpinBox) else c.toPlainText() if isinstance(c,QPlainTextEdit) else c.text() for k,c in controls.items()}
+        return {k:c.isChecked() if isinstance(c,QCheckBox) else c.currentData() if isinstance(c,QComboBox) else c.value() if isinstance(c,(QDoubleSpinBox,QSpinBox)) else c.toPlainText() if isinstance(c,QPlainTextEdit) else c.text() for k,c in controls.items()}
 
     def new_document(self):
         a=self.form_dialog('New document',{'title':'Untitled','width':1536,'height':1024,'background':'#ffffff'})
@@ -669,10 +699,26 @@ class Editor(QMainWindow):
     def export(self):
         if not self.ws.active: return
         d=self.ws.document(); path,_=QFileDialog.getSaveFileName(self,'Export image',d.title+'.png','PNG (*.png);;JPEG (*.jpg);;WebP (*.webp);;TIFF (*.tif)')
-        if path: self.run('export',{'path':path,'documentId':d.id})
+        if path:
+            scale=1
+            if d.pixel_art:
+                scale,ok=QInputDialog.getInt(self,'Export pixel art','Scale (1 = actual pixels)',1,1,64)
+                if not ok: return
+            self.run('export',{'path':path,'documentId':d.id,'scale':scale})
     def size_dialog(self,operation):
-        d=self.ws.document(); a=self.form_dialog(operation.replace('_',' ').title(),{'width':d.width,'height':d.height})
+        d=self.ws.document(); defaults={'width':d.width,'height':d.height}
+        if operation=='image_size': defaults['resampling']=['nearest','smooth'] if d.pixel_art else ['smooth','nearest']
+        a=self.form_dialog(operation.replace('_',' ').title(),defaults)
         if a: self.edit(operation,a)
+    def pixel_art_dialog(self):
+        from .pixel_ui import PixelArtDialog
+        PixelArtDialog(self).exec()
+    def new_pixel_document(self):
+        args=self.form_dialog('New pixel canvas',{'title':'Pixel artwork','width':128,'height':128})
+        if args:
+            self.run('new',{**args,'background':'#00000000','pixelArt':True}); self.set_tool('pencil')
+    def toggle_pixel_grid(self):
+        self.canvas.pixel_grid=not self.canvas.pixel_grid; self.canvas.viewport().update()
     def crop_selection(self):
         box=self.ws.document().selection.getbbox() if self.ws.document().selection is not None else None
         if box: self.edit('crop',{'x':box[0],'y':box[1],'width':box[2]-box[0],'height':box[3]-box[1]})
@@ -736,7 +782,7 @@ class Editor(QMainWindow):
             folder=self.ws.settings.root/'clipboard'; folder.mkdir(exist_ok=True); path=folder/(str(uuid.uuid4())+'.png'); im.save(str(path)); self.edit('import_image',{'path':str(path)})
     def choose_references(self):
         paths,_=QFileDialog.getOpenFileNames(self,'Reference images','','Images (*.png *.jpg *.jpeg *.webp)'); self.references=paths; self.ref_label.setText(f'{len(paths)} selected')
-    def generation_args(self): return {'prompt':self.prompt.toPlainText(),'kind':self.gen_kind.currentData(),'size':self.gen_size.currentText(),'references':self.references,'styleId':self.gen_style.currentData()}
+    def generation_args(self): return {'prompt':self.prompt.toPlainText(),'kind':self.gen_kind.currentData(),'size':self.gen_size.currentText(),'references':self.references,'styleId':self.gen_style.currentData(),'resampling':self.gen_sampling.currentData()}
     def generate(self): self.run('generate',self.generation_args())
     def generate_with_chat(self,document,args):
         self.show_panel(self.chat_dock)

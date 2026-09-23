@@ -3,7 +3,7 @@ import math
 from PySide6.QtCore import Qt, QRect, QRectF, QPointF, QSize, Signal, QEvent
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QIcon, QLinearGradient, QPalette
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication, QWidget, QToolButton, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QStyledItemDelegate, QStyle, QComboBox
+from PySide6.QtWidgets import QApplication, QWidget, QToolButton, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QStyledItemDelegate, QStyle, QComboBox, QScrollArea, QGridLayout
 
 def configure_application():
     app=QApplication.instance(); app.setStyle('Fusion')
@@ -21,6 +21,7 @@ PATHS = {
     'wand':'<path d="m5 20 13-13 2 2L7 22zM5 3v5M2.5 5.5h5M16 1v4M14 3h4M21 15v4M19 17h4"/>',
     'crop':'<path d="M7 2v15h15M2 7h15v15M10 7h7v7"/>',
     'brush':'<path d="M9 15 18 3c2-2 4 0 2 2L12 17zM9 15c-5 0-2 5-6 5 4 3 9 0 9-3"/>',
+    'pencil':'<path d="m4 16 12-12 4 4L8 20H4zM13 7l4 4M4 16l4 4"/>',
     'erase':'<path d="m3 14 10-11 8 7-9 10H9zM8 9l9 8M12 20h10"/>',
     'heal':'<path d="m4 13 9-9c5-5 11 1 6 6l-9 9c-5 5-11-1-6-6zM8 9l7 7M10 8l7 7"/><path d="m9 13 .1 .1m3-3 .1 .1m0 6 .1 .1m3-3 .1 .1"/>',
     'clone':'<path d="M5 18h14v3H5zM4 18v-4h5v-3c-4-7 10-7 6 0v3h5v4"/>',
@@ -124,10 +125,21 @@ class ColorPanel(QWidget):
     def __init__(self,editor):
         super().__init__(); self.editor=editor; layout=QVBoxLayout(self); layout.setContentsMargins(12,10,12,10); layout.setSpacing(8)
         row=QHBoxLayout(); row.setSpacing(10); self.plane=ColorPlane(); self.hue=ColorPlane(True); row.addWidget(self.plane,1); row.addWidget(self.hue); layout.addLayout(row,1)
+        self.palette_scroll=QScrollArea(); self.palette_scroll.setWidgetResizable(True); self.palette_scroll.hide(); layout.addWidget(self.palette_scroll,1); self.palette_colors=None
         bottom=QHBoxLayout(); self.sample=QLabel(); self.sample.setFixedSize(24,24); bottom.addWidget(self.sample)
         self.hex=QLineEdit(); self.hex.setAccessibleName('Foreground color hex'); self.hex.setMaxLength(7); self.hex.setMaximumWidth(100); self.hex.editingFinished.connect(self.from_hex)
         bottom.addWidget(self.hex); bottom.addStretch(); bottom.addWidget(icon_button('swap','Swap foreground and background (X)',editor.swap_colors)); layout.addLayout(bottom)
         self.plane.changed.connect(self.set_color); self.hue.changed.connect(self.set_color)
+    def show_palette(self,colors):
+        colors=tuple(colors)
+        if colors==self.palette_colors: return
+        self.palette_colors=colors; self.plane.setVisible(not colors); self.hue.setVisible(not colors); self.palette_scroll.setVisible(bool(colors))
+        self.layout().setStretch(0,0 if colors else 1)
+        self.palette_scroll.setMinimumHeight(min(4,math.ceil(len(colors)/8))*32+4 if colors else 0)
+        grid_widget=QWidget(); grid=QGridLayout(grid_widget); grid.setContentsMargins(0,0,0,0); grid.setSpacing(0)
+        for i,color in enumerate(colors):
+            button=QToolButton(); button.setFixedSize(32,32); button.setStyleSheet(f'background:{color};border:1px solid #555;'); button.setToolTip(color); button.setAccessibleName('Paint with '+color); button.clicked.connect(lambda checked=False,color=color:self.set_color(QColor(color))); grid.addWidget(button,i//8,i%8)
+        self.palette_scroll.setWidget(grid_widget)
     def set_color(self,color):
         if color.hsvHueF()>=0: self.plane.hue=self.hue.hue=color.hsvHueF()
         self.editor.color=color.name(); self.editor.update_color()

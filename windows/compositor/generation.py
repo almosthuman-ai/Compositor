@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 import base64, copy, io, json, os, time, urllib.request, urllib.error, uuid
 from PIL import Image
 from .settings import atomic_json
+from .generation_source import prepare_source, region_instruction, normalize_candidate
+from .pixels import resampling
 
 def http_json(url,body=None,headers=None,timeout=300):
     request=urllib.request.Request(url,data=json.dumps(body).encode() if body is not None else None,headers={'Content-Type':'application/json',**(headers or {})})
@@ -70,26 +72,15 @@ class Generation:
         key=self.settings.key(config['provider'])
         if not key: raise ValueError('Configure your image provider in Settings first')
         job_id=str(uuid.uuid4()); folder=self.root/job_id; folder.mkdir()
-        kind=args.get('kind','generate'); images=[]; box=args.get('box'); selection=None
-        if kind not in ('generate','edit','patch'): raise ValueError('Generation kind must be generate, edit or patch')
-        if kind in ('edit','patch'):
-            im=document.render()
-            if kind=='patch':
-                if not box and document.selection is not None:
-                    bounds=document.selection.getbbox()
-                    if bounds: box={'x':bounds[0],'y':bounds[1],'width':bounds[2]-bounds[0],'height':bounds[3]-bounds[1]}
-                if not box: raise ValueError('Select an area to refine')
-                x,y=int(box['x']),int(box['y']); w=int(box.get('width',box.get('size',0))); h=int(box.get('height',box.get('size',0)))
-                if min(x,y)<0 or min(w,h)<1 or x+w>im.width or y+h>im.height: raise ValueError('Generation region must fit inside the canvas')
-                box={'x':x,'y':y,'width':w,'height':h}; im=im.crop((x,y,x+w,y+h))
-                if document.selection is not None: selection=document.selection.crop((x,y,x+w,y+h)); selection.save(folder/'selection.png')
-            im.save(folder/'source.png'); images.append(str(folder/'source.png'))
+        kind=args.get('kind','generate'); source=prepare_source(document,kind,args.get('box'),folder,args.get('resampling'))
+        images=[source['sourcePath']] if source['sourcePath'] else []
+        if source.get('editArea'): prompt+='\n\n'+region_instruction(source)
         for i,reference in enumerate(args.get('references',[])):
             path=reference['path'] if isinstance(reference,dict) else reference
             with Image.open(path) as im: im.convert('RGBA').save(folder/f'reference-{i}.png')
             images.append(str(folder/f'reference-{i}.png'))
         size=args.get('size','1024x1024')
-        job={'id':job_id,'status':'queued','created':time.time(),'documentId':document.id,'sourceRevision':document.revision,'kind':kind,'prompt':prompt,'box':box,'config':config,'size':size,'inputs':images,'references':copy.deepcopy(args.get('references',[])),'autoApply':bool(args.get('autoApply',False))}
+        job={**source,'id':job_id,'status':'queued','created':time.time(),'documentId':document.id,'sourceRevision':document.revision,'kind':kind,'prompt':prompt,'config':config,'size':size,'inputs':images,'references':copy.deepcopy(args.get('references',[])),'autoApply':bool(args.get('autoApply',False))}
         job['userPrompt']=args.get('userPrompt',prompt); job['creativeContext']=copy.deepcopy(args.get('creativeContext',{}))
         # Only non-secret provider configuration is retained. Credentials remain in the user's key store.
         self.jobs[job_id]=job; atomic_json(folder/'job.json',job)
@@ -103,7 +94,8 @@ class Generation:
             raw,usage=self.provider(job['config'],key,job['prompt'],job['inputs'],job['size'])
             (folder/'provider-original').write_bytes(raw)
             with Image.open(io.BytesIO(raw)) as im:
-                im.convert('RGBA').save(folder/'result.png'); actual=list(im.size)
+                actual=list(im.size); candidate=normalize_candidate(im,job); candidate.save(folder/'result.png')
+                job['candidateSize']=list(candidate.size)
             job.update(status='complete',result=str(folder/'result.png'),actualSize=actual,usage=usage)
         except Exception as e: job.update(status='failed',error=str(e))
         job['finished']=time.time(); atomic_json(folder/'job.json',job)
@@ -120,16 +112,18 @@ class Generation:
         if job['sourceRevision']!=document.revision: raise ValueError('The document changed after generation. The candidate remains available; import it as a layer to place it yourself.')
         before=document.snapshot()
         try:
-            im=Image.open(job['result']).convert('RGBA'); box=job.get('box'); x=y=0
+            im=Image.open(job['result']).convert('RGBA'); box=job.get('box'); x=y=0; mask=None
             if box:
-                im=im.resize((box['width'],box['height']),Image.Resampling.LANCZOS); x,y=box['x'],box['y']
+                if job.get('workingContentBox'):
+                    im=im.resize(tuple(job['workingSize']),resampling(job.get('resampling','smooth'))).crop(tuple(job['workingContentBox']))
+                im=im.resize((box['width'],box['height']),resampling(job.get('resampling','smooth'))); x,y=box['x'],box['y']
                 mask_path=self.root/job_id/'selection.png'
                 if mask_path.exists():
-                    from PIL import ImageChops
-                    im.putalpha(ImageChops.multiply(im.getchannel('A'),Image.open(mask_path).convert('L')))
-            document.add(Layer(name=job.get('userPrompt',job['prompt'])[:48],image=im,x=x,y=y,provenance={'generationId':job_id,'provider':job['config']['provider'],'model':job['config']['model'],'prompt':job['prompt'],'creativeContext':job.get('creativeContext',{}),'sourceRevision':job['sourceRevision']}))
+                    mask=Image.open(mask_path).convert('L')
+            document.add(Layer(name=job.get('userPrompt',job['prompt'])[:48],image=im,mask=mask,x=x,y=y,resampling=job.get('resampling','smooth'),provenance={'generationId':job_id,'provider':job['config']['provider'],'model':job['config']['model'],'prompt':job['prompt'],'creativeContext':job.get('creativeContext',{}),'sourceRevision':job['sourceRevision']}))
             document._validate()
         except Exception: document.restore(before); raise
-        document.history.append(('generation',before)); document.future=[]; document.revision+=1; document._cache=None
+        document.history.append(('generation',before)); document.history=document.history[-60:]; document.future=[]
+        document.state_id=str(uuid.uuid4()); document.revision+=1; document._cache=None
         job.update(applied=True,appliedLayer=document.active); atomic_json(self.root/job_id/'job.json',job)
         return document.info()

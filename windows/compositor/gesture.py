@@ -15,7 +15,7 @@ class EditPreview:
         # Pointwise compositing can render just the stroke footprint. Filters and
         # effects may read neighboring/global pixels, so use the full reference
         # renderer for those documents instead of approximating their appearance.
-        local=self.operation in ('brush','erase') and not any(l.effects or l.kind=='adjustment' for l in layers)
+        local=self.operation in ('brush','erase','pencil','pixel_erase') and not any(l.effects or l.kind=='adjustment' for l in layers)
         box=(0,0,width,height)
         if local:
             radius=float(args.get('size',32))/2

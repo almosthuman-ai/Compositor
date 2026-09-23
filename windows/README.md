@@ -12,6 +12,14 @@ Color, Properties and Layers stay beside the canvas. Width and height in Propert
 
 Select a text layer to change its font family, style and size directly in Properties. Double-click it to edit the wording, alignment, line spacing and color, with a preview of the rendered text. Font availability follows the fonts installed on your computer.
 
+## Pixel art
+
+Use **File → New pixel canvas** to draw at the image's actual pixel resolution. **Image → Convert to pixel art** previews a separate document from an existing image or selection. Choose the resolution, color count or custom palette, reduction method, detail simplification and dithering before creating it. Conversion gives you material to refine; inspect silhouettes, contours and pixel clusters afterward.
+
+The **Pixel pencil (P)** draws square, opaque pixels. Its **Erase pixels** option removes whole pixels. Converted documents show their palette in Color and use nearest-neighbor display and layer transforms. **View → Pixel grid** reveals the grid at 800% zoom and above. PNG export offers whole-number enlargement while the document retains its original resolution.
+
+Regional generation uses surrounding context on a working image with dimensions divisible by 64 and at least 1024 pixels on its long side. The selection determines where the result is applied. Generate offers smooth or nearest-neighbor sampling; the app retains the provider's original bytes and normalizes crop-edit candidates to the working dimensions. Applied selections remain editable layer masks.
+
 ## Run from source
 
 Install Python 3.11 for Windows, then run:
